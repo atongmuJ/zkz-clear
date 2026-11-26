@@ -1,6 +1,9 @@
 import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { createGlobe, type GlobeHandle } from "../lib/globe";
 
-const EARTH_SRC = `${import.meta.env.BASE_URL}assets/images/earth.png`;
+const MAP_SRC = `${import.meta.env.BASE_URL}assets/images/earth-map.jpg`;
+const POSTER_SRC = `${import.meta.env.BASE_URL}assets/images/earth.png`;
 
 const STARS = [
   { x: 12, y: 18, s: 2, o: 0.5 }, { x: 26, y: 9, s: 1, o: 0.35 },
@@ -15,6 +18,36 @@ interface EarthProps {
 }
 
 export function Earth({ scanning = false }: EarthProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const globeRef = useRef<GlobeHandle | null>(null);
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    try {
+      globeRef.current = createGlobe(canvas, {
+        mapUrl: MAP_SRC,
+        onReady: () => setReady(true),
+      });
+    } catch (err) {
+      // 老显卡或驱动异常时退回静态图，不让首页开天窗
+      console.warn("WebGL 地球不可用，已降级为静态图：", err);
+      setFailed(true);
+    }
+
+    return () => {
+      globeRef.current?.dispose();
+      globeRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    globeRef.current?.setScanning(scanning);
+  }, [scanning]);
+
   return (
     <div className={`earth-scene${scanning ? " is-scanning" : ""}`} aria-hidden="true">
       <div className="star-field">
@@ -35,12 +68,6 @@ export function Earth({ scanning = false }: EarthProps) {
       </div>
 
       <motion.div
-        className="moon"
-        animate={{ y: scanning ? [0, -6, 0] : [0, -4, 0] }}
-        transition={{ duration: scanning ? 3 : 9, repeat: Infinity, ease: "easeInOut" }}
-      />
-
-      <motion.div
         className="earth-halo"
         animate={
           scanning
@@ -50,22 +77,27 @@ export function Earth({ scanning = false }: EarthProps) {
         transition={{ duration: scanning ? 1.6 : 5, repeat: Infinity, ease: "easeInOut" }}
       />
 
-      <motion.img
-        src={EARTH_SRC}
-        alt=""
-        className="earth-planet"
-        draggable={false}
-        animate={
-          scanning
-            ? { scale: [1, 1.04, 1], rotate: [0, 2, -2, 0] }
-            : { scale: 1, y: [0, -7, 0], rotate: 0 }
-        }
-        transition={
-          scanning
-            ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" }
-            : { y: { duration: 7, repeat: Infinity, ease: "easeInOut" }, default: { duration: 0.6 } }
-        }
-      />
+      {/* 贴图加载完成前先垫一张静态图，避免出现空档 */}
+      {!failed && (
+        <img
+          src={POSTER_SRC}
+          alt=""
+          className="earth-planet earth-poster"
+          draggable={false}
+          style={{ opacity: ready ? 0 : 1 }}
+        />
+      )}
+
+      {failed ? (
+        <img src={POSTER_SRC} alt="" className="earth-planet" draggable={false} />
+      ) : (
+        <canvas
+          ref={canvasRef}
+          className={`earth-canvas${ready ? " is-ready" : ""}`}
+          role="img"
+          aria-label="可拖动旋转的地球"
+        />
+      )}
     </div>
   );
 }

@@ -1,10 +1,12 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useState } from "react";
+import { CleanPulse } from "../components/CleanPulse";
 import { Earth } from "../components/Earth";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Icon, type IconName } from "../components/Icon";
 import { cleanJunk, scanJunk } from "../lib/api";
 import { errorMessage, formatBytes } from "../lib/format";
+import { useCountUp } from "../lib/useCountUp";
 import type { CleanCategory, ScanProgress } from "../lib/types";
 
 type Phase = "idle" | "scanning" | "result" | "cleaning" | "done";
@@ -104,7 +106,7 @@ export function CleanView() {
                   <Icon name="scan" size={17} />
                   扫描电脑
                 </button>
-                <p className="hero-hint">扫描将检查临时文件、缓存、日志与回收站</p>
+                <p className="hero-hint">扫描临时文件、缓存与回收站 · 拖动地球可以旋转</p>
               </motion.div>
             ) : (
               <motion.div
@@ -224,43 +226,63 @@ export function CleanView() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <motion.div
-              className="cleaning-ring"
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
-            />
+            <CleanPulse />
             <h2>正在清理…</h2>
             <p>正在安全删除选中的垃圾文件</p>
           </motion.div>
         )}
 
         {phase === "done" && (
-          <motion.div
-            key="done"
-            className="center-state"
-            initial={{ opacity: 0, scale: 0.94 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ type: "spring", stiffness: 180, damping: 20 }}
-          >
-            <motion.div
-              className="success-mark"
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 260, damping: 18, delay: 0.1 }}
-            >
-              <Icon name="check" size={34} />
-            </motion.div>
-            <h2>清理完成</h2>
-            <p className="freed-text">已释放 <strong>{formatBytes(freed)}</strong> 空间</p>
-            <p className="done-sub">你的电脑又轻了一点</p>
-            <button type="button" className="primary-btn" onClick={handleScan}>
-              <Icon name="refresh" size={16} />
-              再次扫描
-            </button>
-          </motion.div>
+          <DoneState key="done" freed={freed} onRescan={handleScan} />
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/** 完成态：释放体积从 0 滚到实际值，配一次光晕扩散 */
+function DoneState({ freed, onRescan }: { freed: number; onRescan: () => void }) {
+  const shown = useCountUp(freed);
+
+  return (
+    <motion.div
+      className="center-state"
+      initial={{ opacity: 0, scale: 0.94 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ type: "spring", stiffness: 180, damping: 20 }}
+    >
+      <div className="success-wrap">
+        <motion.span
+          className="done-burst"
+          initial={{ scale: 0.5, opacity: 0.45 }}
+          animate={{ scale: 2.3, opacity: 0 }}
+          transition={{ duration: 1.15, ease: "easeOut", delay: 0.05 }}
+        />
+        <motion.span
+          className="done-burst burst-2"
+          initial={{ scale: 0.5, opacity: 0.3 }}
+          animate={{ scale: 2.8, opacity: 0 }}
+          transition={{ duration: 1.5, ease: "easeOut", delay: 0.22 }}
+        />
+        <motion.div
+          className="success-mark"
+          initial={{ scale: 0, rotate: -18 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 260, damping: 16, delay: 0.1 }}
+        >
+          <Icon name="check" size={34} />
+        </motion.div>
+      </div>
+      <h2>清理完成</h2>
+      <p className="freed-text">
+        已释放 <strong>{formatBytes(shown)}</strong> 空间
+      </p>
+      <p className="done-sub">你的电脑又轻了一点</p>
+      <button type="button" className="primary-btn" onClick={onRescan}>
+        <Icon name="refresh" size={16} />
+        再次扫描
+      </button>
+    </motion.div>
   );
 }

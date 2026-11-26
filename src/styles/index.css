@@ -222,18 +222,6 @@ button:disabled { cursor: not-allowed; }
   animation: twinkle 4s ease-in-out infinite;
 }
 @keyframes twinkle { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.85; } }
-.moon {
-  position: absolute;
-  top: 8%; right: 3%;
-  width: 42px; height: 42px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 32% 28%, rgba(0,0,0,.18) 0 3px, transparent 4px),
-    radial-gradient(circle at 62% 45%, rgba(0,0,0,.14) 0 5px, transparent 6px),
-    radial-gradient(circle at 45% 68%, rgba(0,0,0,.16) 0 4px, transparent 5px),
-    radial-gradient(circle at 34% 30%, #e2e2df, #a9aeb6 52%, #565c6b 100%);
-  box-shadow: inset -6px -5px 12px rgba(0, 0, 0, 0.45), 0 0 18px rgba(210, 220, 240, 0.08);
-}
 .earth-halo {
   position: absolute;
   inset: 4%;
@@ -249,6 +237,23 @@ button:disabled { cursor: not-allowed; }
   -webkit-mask-image: radial-gradient(circle closest-side at 50% 50%, #000 87%, transparent 100%);
   mask-image: radial-gradient(circle closest-side at 50% 50%, #000 87%, transparent 100%);
 }
+.earth-poster {
+  position: absolute;
+  transition: opacity 0.45s ease;
+  pointer-events: none;
+}
+.earth-canvas {
+  position: absolute;
+  inset: 3.5%;
+  width: 93%; height: 93%;
+  display: block;
+  opacity: 0;
+  cursor: grab;
+  touch-action: none;
+  transition: opacity 0.45s ease;
+}
+.earth-canvas.is-ready { opacity: 1; }
+.earth-canvas:active { cursor: grabbing; }
 .hero-content {
   margin-top: -6px;
   display: flex;
@@ -421,11 +426,68 @@ button:disabled { cursor: not-allowed; }
 }
 .center-state h2 { margin: 6px 0 0; font-size: 20px; font-weight: 600; }
 .center-state p { margin: 0; font-size: 12px; color: var(--text-dim); }
+.clean-anim {
+  position: relative;
+  width: 112px; height: 112px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 6px;
+}
 .cleaning-ring {
-  width: 54px; height: 54px;
+  position: absolute;
+  width: 56px; height: 56px;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.09);
+  border: 3px solid rgba(255, 255, 255, 0.08);
   border-top-color: var(--accent);
+  border-right-color: rgba(109, 159, 216, 0.4);
+}
+.clean-core {
+  position: relative;
+  width: 32px; height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #a8c8ef;
+  background: rgba(109, 159, 216, 0.14);
+  border: 1px solid rgba(109, 159, 216, 0.26);
+}
+.clean-wave {
+  position: absolute;
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  border: 1px solid rgba(109, 159, 216, 0.4);
+  pointer-events: none;
+}
+.junk-particle {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: var(--s); height: var(--s);
+  margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+  border-radius: 50%;
+  background: #a8c8ef;
+  box-shadow: 0 0 6px rgba(109, 159, 216, 0.75);
+  opacity: 0;
+  animation: junk-suck 1.9s cubic-bezier(0.45, 0, 0.7, 1) infinite;
+  pointer-events: none;
+}
+@keyframes junk-suck {
+  0%   { transform: rotate(var(--a)) translateX(var(--r)) scale(1); opacity: 0; }
+  12%  { opacity: 0.85; }
+  68%  { opacity: 0.55; }
+  100% { transform: rotate(var(--a)) translateX(9px) scale(0.3); opacity: 0; }
+}
+.success-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+}
+.done-burst {
+  position: absolute;
+  width: 76px; height: 76px;
+  border-radius: 50%;
+  border: 1px solid rgba(126, 203, 159, 0.5);
+  pointer-events: none;
 }
 .success-mark {
   width: 76px; height: 76px;
