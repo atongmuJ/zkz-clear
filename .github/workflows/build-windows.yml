@@ -14,9 +14,6 @@ on:
 permissions:
   contents: write
 
-env:
-  APP_VERSION: 0.1.0
-
 jobs:
   build:
     runs-on: windows-latest
@@ -25,6 +22,32 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # 版本号唯一来源：推 tag 时取 tag 名（v0.1.1 → 0.1.1），手动触发时取 tauri.conf.json
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ref = "${{ github.ref }}"
+
+          if ($ref -like "refs/tags/v*") {
+            $ver = $ref.Substring("refs/tags/v".Length)
+            $src = "tag $ref"
+          } else {
+            $conf = Get-Content "src-tauri/tauri.conf.json" -Raw -Encoding utf8 | ConvertFrom-Json
+            $ver = $conf.version
+            $src = "src-tauri/tauri.conf.json"
+          }
+
+          if ($ver -notmatch '^\d+\.\d+\.\d+') {
+            throw "版本号无法解析：'$ver'（来源：$src）。tag 应形如 v0.1.1"
+          }
+
+          "APP_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "version=$ver"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "source=$src"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "版本号 $ver（来源：$src）"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -46,9 +69,17 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      # 一次构建同时产出：release 单文件 exe + NSIS 安装包
+      # 一次构建同时产出：release 单文件 exe + NSIS 安装包。
+      # 用 --config 覆盖版本号，避免仓库里的 tauri.conf.json 落后于 tag，
+      # 导致 exe 内嵌版本、安装包文件名与实际发布版本不一致。
       - name: Build app and installer
-        run: npm run tauri build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          @{ version = $env:APP_VERSION } | ConvertTo-Json -Compress |
+            Set-Content -Path "$env:RUNNER_TEMP/version-override.json" -Encoding utf8
+          npm run tauri build -- --config "$env:RUNNER_TEMP/version-override.json"
+          if ($LASTEXITCODE -ne 0) { throw "构建失败（退出码 $LASTEXITCODE）" }
 
       - name: Collect and verify artifacts
         shell: pwsh
@@ -75,6 +106,11 @@ jobs:
                    Sort-Object Length -Descending | Select-Object -First 1
           if (-not $setup) { throw "构建失败：未生成 NSIS 安装包" }
 
+          # 产物版本必须与本次构建的版本号一致，否则说明 --config 覆盖没生效
+          if ($setup.Name -notlike "*$env:APP_VERSION*") {
+            throw "安装包文件名 '$($setup.Name)' 不含版本号 $env:APP_VERSION，版本覆盖可能未生效"
+          }
+
           New-Item -ItemType Directory -Force -Path out | Out-Null
           Copy-Item $exe "out/ZhangZuiCleaner-Portable-$env:APP_VERSION-x64.exe"
           Copy-Item $setup.FullName "out/ZhangZuiCleaner-Setup-$env:APP_VERSION-x64.exe"
@@ -86,7 +122,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZhangZuiCleaner-windows-x64
+          name: ZhangZuiCleaner-windows-x64-${{ steps.ver.outputs.version }}
           path: out/*
           if-no-files-found: error
           retention-days: 30
@@ -95,20 +131,22 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}-build.{1}', env.APP_VERSION, github.run_number) }}
-          name: 张开嘴清理 v${{ env.APP_VERSION }} (Build ${{ github.run_number }})
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}-build.{1}', steps.ver.outputs.version, github.run_number) }}
+          name: 张开嘴清理 v${{ steps.ver.outputs.version }} (Build ${{ github.run_number }})
           body: |
             Windows x64 构建产物，直接在本页 Assets 下载即可，无需解压：
 
             | 文件 | 用途 |
             | --- | --- |
-            | `ZhangZuiCleaner-Setup-${{ env.APP_VERSION }}-x64.exe` | 安装版：装好后桌面和开始菜单出现「张开嘴清理」快捷方式 |
-            | `ZhangZuiCleaner-Portable-${{ env.APP_VERSION }}-x64.exe` | 免安装版：双击直接运行，可放 U 盘带走 |
+            | `ZhangZuiCleaner-Setup-${{ steps.ver.outputs.version }}-x64.exe` | 安装版：装好后桌面和开始菜单出现「张开嘴清理」快捷方式，缺 WebView2 会自动补 |
+            | `ZhangZuiCleaner-Portable-${{ steps.ver.outputs.version }}-x64.exe` | 免安装版：双击直接运行，可放 U 盘带走 |
 
             系统要求：Windows 10 1803+ / Windows 11。首次运行若被 SmartScreen 拦截，
             点「更多信息」→「仍要运行」即可（程序未做代码签名）。
 
             「C 盘清理」中的休眠文件、系统还原点、Windows.old 等项目需要右键「以管理员身份运行」。
+
+            版本来源：${{ steps.ver.outputs.source }} · 提交 ${{ github.sha }}
           files: out/*
           fail_on_unmatched_files: true
           draft: false
