@@ -1,0 +1,115 @@
+name: build-windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "构建完成后创建 Release（可直接下载 exe）"
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  APP_VERSION: 0.1.0
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # 一次构建同时产出：release 单文件 exe + NSIS 安装包
+      - name: Build app and installer
+        run: npm run tauri build
+
+      - name: Collect and verify artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          # 不同 Tauri 版本对产物命名处理略有差异，这里按优先级兜底查找
+          $candidates = @(
+            "src-tauri/target/release/ZhangZuiCleaner.exe",
+            "src-tauri/target/release/mole-win.exe",
+            "src-tauri/target/release/张开嘴清理.exe"
+          )
+          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) {
+            $fallback = Get-ChildItem "src-tauri/target/release" -Filter *.exe -File -ErrorAction SilentlyContinue |
+                        Sort-Object Length -Descending | Select-Object -First 1
+            if ($fallback) { $exe = $fallback.FullName }
+          }
+          if (-not $exe -or -not (Test-Path $exe)) {
+            throw "构建失败：target/release 下没有找到可执行文件"
+          }
+
+          $setup = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter *.exe -ErrorAction SilentlyContinue |
+                   Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $setup) { throw "构建失败：未生成 NSIS 安装包" }
+
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Copy-Item $exe "out/ZhangZuiCleaner-Portable-$env:APP_VERSION-x64.exe"
+          Copy-Item $setup.FullName "out/ZhangZuiCleaner-Setup-$env:APP_VERSION-x64.exe"
+
+          Get-ChildItem out | ForEach-Object {
+            "{0}  ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB)
+          }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZhangZuiCleaner-windows-x64
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}-build.{1}', env.APP_VERSION, github.run_number) }}
+          name: 张开嘴清理 v${{ env.APP_VERSION }} (Build ${{ github.run_number }})
+          body: |
+            Windows x64 构建产物，直接在本页 Assets 下载即可，无需解压：
+
+            | 文件 | 用途 |
+            | --- | --- |
+            | `ZhangZuiCleaner-Setup-${{ env.APP_VERSION }}-x64.exe` | 安装版：装好后桌面和开始菜单出现「张开嘴清理」快捷方式 |
+            | `ZhangZuiCleaner-Portable-${{ env.APP_VERSION }}-x64.exe` | 免安装版：双击直接运行，可放 U 盘带走 |
+
+            系统要求：Windows 10 1803+ / Windows 11。首次运行若被 SmartScreen 拦截，
+            点「更多信息」→「仍要运行」即可（程序未做代码签名）。
+
+            「C 盘清理」中的休眠文件、系统还原点、Windows.old 等项目需要右键「以管理员身份运行」。
+          files: out/*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
