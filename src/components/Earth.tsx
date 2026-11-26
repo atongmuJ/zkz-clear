@@ -13,6 +13,9 @@ const STARS = [
   { x: 43, y: 6, s: 1, o: 0.4 }, { x: 58, y: 96, s: 2, o: 0.3 },
 ];
 
+// 应用每次启动只做一次「开场自转」，避免每次切页都转一圈显得啰嗦
+let introSpinPlayed = false;
+
 interface EarthProps {
   scanning?: boolean;
 }
@@ -20,6 +23,7 @@ interface EarthProps {
 export function Earth({ scanning = false }: EarthProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const globeRef = useRef<GlobeHandle | null>(null);
+  const spinPending = useRef(!introSpinPlayed);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -30,7 +34,14 @@ export function Earth({ scanning = false }: EarthProps) {
     try {
       globeRef.current = createGlobe(canvas, {
         mapUrl: MAP_SRC,
-        onReady: () => setReady(true),
+        onReady: () => {
+          setReady(true);
+          if (spinPending.current) {
+            spinPending.current = false;
+            introSpinPlayed = true;
+            globeRef.current?.spinOnce(1, 2400);
+          }
+        },
       });
     } catch (err) {
       // 老显卡或驱动异常时退回静态图，不让首页开天窗

@@ -88,7 +88,7 @@ export function CleanView() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
-            transition={{ duration: 0.45 }}
+            transition={{ duration: 0.32 }}
           >
             <div className="hero-earth">
               <Earth scanning={phase === "scanning"} />
@@ -146,7 +146,7 @@ export function CleanView() {
             <header className="result-header">
               <div>
                 <h1>扫描完成</h1>
-                <p>发现 <strong>{totalItems.toLocaleString()}</strong> 项可清理内容，共 <strong>{formatBytes(categories.reduce((s, c) => s + c.totalSize, 0))}</strong></p>
+                <p>发现 <strong>{totalItems.toLocaleString()}</strong> 项可清理内容，共 <TotalBytes value={categories.reduce((s, c) => s + c.totalSize, 0)} /></p>
               </div>
               <button type="button" className="ghost-btn" onClick={handleScan}>
                 <Icon name="refresh" size={15} />
@@ -240,6 +240,12 @@ export function CleanView() {
   );
 }
 
+/** 结果头部的总量从 0 滚上来，和下方列表的入场节奏对齐 */
+function TotalBytes({ value }: { value: number }) {
+  const shown = useCountUp(value, 700);
+  return <strong>{formatBytes(shown)}</strong>;
+}
+
 /** 完成态：释放体积从 0 滚到实际值，配一次光晕扩散 */
 function DoneState({ freed, onRescan }: { freed: number; onRescan: () => void }) {
   const shown = useCountUp(freed);
@@ -249,7 +255,7 @@ function DoneState({ freed, onRescan }: { freed: number; onRescan: () => void })
       className="center-state"
       initial={{ opacity: 0, scale: 0.94 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0 }}
+      // 不留退场动画：紧接着就是首页淡入，先淡出会露出一瞬空白
       transition={{ type: "spring", stiffness: 180, damping: 20 }}
     >
       <div className="success-wrap">

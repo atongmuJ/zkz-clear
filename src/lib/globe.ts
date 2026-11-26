@@ -117,6 +117,8 @@ export interface GlobeOptions {
 
 export interface GlobeHandle {
   setScanning(on: boolean): void;
+  /** 平滑自转指定圈数，用于开场这类一次性提示；渲染「减少动态效果」时自动忽略 */
+  spinOnce(turns?: number, duration?: number): void;
   dispose(): void;
 }
 
@@ -164,7 +166,8 @@ export function createGlobe(canvas: HTMLCanvasElement, opts: GlobeOptions): Glob
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const state = {
-    yaw: -1.02,
+    // 开场停在西太平洋上空：亚洲、印度洋与澳洲同时入镜，且大部分处于晨昏线亮侧
+    yaw: 2.6,
     pitch: -0.16,
     vel: 0,
     scanning: false,
@@ -175,21 +178,27 @@ export function createGlobe(canvas: HTMLCanvasElement, opts: GlobeOptions): Glob
     lastMoveAt: 0,
     raf: 0,
     disposed: false,
+    // 一次性自转：与自动自转分离，避免互相打架
+    spin: { running: false, elapsed: 0, duration: 2.2, from: 0, turns: 1 },
     dpr: Math.min(window.devicePixelRatio || 1, 2),
   };
 
   // ---------- 纹理 ----------
-  // 1024x512 是 2 的幂，可以生成 mipmap 并横向重复（经度 0/360 首尾相接）
+  // 横向重复：等距柱状贴图的 0°/360° 首尾相接
   const makeTexture = (img: HTMLImageElement) => {
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+    // 不开 FLIP_Y：贴图第 0 行就是图像最上面一行，正好对应 uv.y = 0（北极），
+    // 否则南北极会对调，整颗地球上下颠倒
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    // 不用 mipmap：经度在 ±180° 处会从 1 跳到 0，隐式求导得到的层级在接缝处
+    // 会突然变粗，在太平洋正中出现一条虚线。贴图本身首尾相接，双线性已足够，
+    // 而且球体在 350px 量级上压缩比不高。
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.generateMipmap(gl.TEXTURE_2D);
     return tex;
   };
 
@@ -222,6 +231,7 @@ export function createGlobe(canvas: HTMLCanvasElement, opts: GlobeOptions): Glob
   // ---------- 交互 ----------
   const onDown = (e: PointerEvent) => {
     state.dragging = true;
+    state.spin.running = false; // 用户一碰就以手动为准
     state.lastX = e.clientX;
     state.lastY = e.clientY;
     state.lastMoveAt = performance.now();
@@ -265,7 +275,14 @@ export function createGlobe(canvas: HTMLCanvasElement, opts: GlobeOptions): Glob
     const dt = Math.min(0.08, lastT ? (t - lastT) / 1000 : 0.016);
     lastT = t;
 
-    if (!state.dragging) {
+    if (state.spin.running) {
+      state.spin.elapsed += dt;
+      const p = Math.min(1, state.spin.elapsed / state.spin.duration);
+      const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic：起步快、收尾稳
+      state.yaw = state.spin.from + eased * Math.PI * 2 * state.spin.turns;
+      state.vel = 0;
+      if (p >= 1) state.spin.running = false;
+    } else if (!state.dragging) {
       if (Math.abs(state.vel) > 0.02) {
         state.yaw += state.vel * dt;
         state.vel *= Math.pow(0.06, dt); // 指数衰减
@@ -301,6 +318,15 @@ export function createGlobe(canvas: HTMLCanvasElement, opts: GlobeOptions): Glob
   return {
     setScanning(on: boolean) {
       state.scanning = on;
+    },
+    spinOnce(turns = 1, duration = 2200) {
+      if (reduceMotion || state.disposed) return;
+      state.spin.running = true;
+      state.spin.elapsed = 0;
+      state.spin.duration = duration / 1000;
+      state.spin.from = state.yaw;
+      state.spin.turns = turns;
+      state.vel = 0;
     },
     dispose() {
       state.disposed = true;

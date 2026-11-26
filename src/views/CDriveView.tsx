@@ -4,6 +4,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { Icon } from "../components/Icon";
 import { cleanCDrive, getCDriveItems, getDisks } from "../lib/api";
 import { errorMessage, formatBytes } from "../lib/format";
+import { useCountUp } from "../lib/useCountUp";
 import type { CDriveItem, DiskInfo } from "../lib/types";
 
 type Phase = "idle" | "cleaning" | "done";
@@ -52,6 +53,18 @@ export function CDriveView() {
       setFreed(outcome.freed);
       setSkipped(outcome.skipped.length);
       setPhase("done");
+      // 真正的清理完成后让仪表盘跟着回落，而不是停在清理前的读数
+      if (outcome.freed > 0) {
+        setDisk((prev) =>
+          prev
+            ? {
+                ...prev,
+                used: Math.max(0, prev.used - outcome.freed),
+                free: Math.min(prev.total, prev.free + outcome.freed),
+              }
+            : prev
+        );
+      }
       // 只移除真正释放了空间的项目，未成功的保留在列表里，用户可重试
       const cleaned = new Set(ids.filter((id) => !outcome.skipped.includes(id)));
       setItems((prev) => prev.filter((i) => !cleaned.has(i.id)));
@@ -65,7 +78,14 @@ export function CDriveView() {
   const selectedSize = items
     .filter((i) => selected.has(i.id))
     .reduce((sum, i) => sum + i.size, 0);
-  const usedPercent = disk && disk.total > 0 ? (disk.used / disk.total) * 100 : 0;
+  const total = disk?.total ?? 0;
+  const usedPercent = total > 0 ? ((disk?.used ?? 0) / total) * 100 : 0;
+
+  // 数字与弧线同步：清理后已用空间从原值滚到新值，可用空间反向增加
+  const shownUsed = useCountUp(disk?.used ?? 0, 800);
+  const shownFree = useCountUp(disk?.free ?? 0, 800);
+  const shownFreed = useCountUp(freed, 900);
+  const shownPercent = total > 0 ? (shownUsed / total) * 100 : 0;
 
   if (loading) {
     return (
@@ -102,7 +122,7 @@ export function CDriveView() {
             />
           </svg>
           <div className="gauge-label">
-            <strong>{Math.round(usedPercent)}%</strong>
+            <strong>{Math.round(shownPercent)}%</strong>
             <span>已使用</span>
           </div>
         </div>
@@ -110,8 +130,8 @@ export function CDriveView() {
           <div className="overview-title">本地磁盘 (C:)</div>
           <div className="overview-numbers">
             <div><span>总容量</span><strong>{formatBytes(disk?.total ?? 0)}</strong></div>
-            <div><span>已使用</span><strong>{formatBytes(disk?.used ?? 0)}</strong></div>
-            <div><span>可用空间</span><strong className="accent">{formatBytes(disk?.free ?? 0)}</strong></div>
+            <div><span>已使用</span><strong>{formatBytes(shownUsed)}</strong></div>
+            <div><span>可用空间</span><strong className="accent">{formatBytes(shownFree)}</strong></div>
           </div>
           <div className="overview-bar">
             <motion.div initial={{ width: 0 }} animate={{ width: `${usedPercent}%` }} transition={{ duration: 1 }} />
@@ -125,32 +145,41 @@ export function CDriveView() {
           <span className="panel-stat">{items.length} 项 · 最多可释放 {formatBytes(items.reduce((s, i) => s + i.size, 0))}</span>
         </div>
         <div className="cdrive-list">
-          {items.map((item, idx) => {
-            const isSelected = selected.has(item.id);
-            const isRisky = item.detail.includes("无法") || item.detail.includes("禁用");
-            return (
-              <motion.button
-                type="button" key={item.id}
-                className={`cdrive-row ${isSelected ? "selected" : ""}`}
-                onClick={() => toggle(item.id)}
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.05, duration: 0.3 }}
-              >
-                <span className={`checkbox ${isSelected ? "checked" : ""}`}>
-                  {isSelected && <Icon name="check" size={13} />}
-                </span>
-                <span className="cdrive-info">
-                  <span className="cdrive-name">{item.name}</span>
-                  <span className="cdrive-desc">{item.description}</span>
-                  <span className={`cdrive-detail ${isRisky ? "risky" : ""}`}>
-                    <Icon name={isRisky ? "warning" : "info"} size={12} />
-                    {item.detail}
+          <AnimatePresence>
+            {items.map((item, idx) => {
+              const isSelected = selected.has(item.id);
+              const isRisky = item.detail.includes("无法") || item.detail.includes("禁用");
+              return (
+                <motion.button
+                  type="button" key={item.id}
+                  layout
+                  className={`cdrive-row ${isSelected ? "selected" : ""}${phase === "cleaning" && isSelected ? " is-busy" : ""}`}
+                  onClick={() => toggle(item.id)}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: 16, transition: { duration: 0.22 } }}
+                  transition={{
+                    duration: 0.3,
+                    delay: Math.min(idx, 8) * 0.04,
+                    layout: { duration: 0.26, delay: 0 },
+                  }}
+                >
+                  <span className={`checkbox ${isSelected ? "checked" : ""}`}>
+                    {isSelected && <Icon name="check" size={13} />}
                   </span>
-                </span>
-                <span className="cdrive-size">{formatBytes(item.size)}</span>
-              </motion.button>
-            );
-          })}
+                  <span className="cdrive-info">
+                    <span className="cdrive-name">{item.name}</span>
+                    <span className="cdrive-desc">{item.description}</span>
+                    <span className={`cdrive-detail ${isRisky ? "risky" : ""}`}>
+                      <Icon name={isRisky ? "warning" : "info"} size={12} />
+                      {item.detail}
+                    </span>
+                  </span>
+                  <span className="cdrive-size">{formatBytes(item.size)}</span>
+                </motion.button>
+              );
+            })}
+          </AnimatePresence>
           {items.length === 0 && (
             <div className="empty-state"><Icon name="check" size={28} /><p>没有可清理的项目了，C 盘很干净</p></div>
           )}
@@ -161,7 +190,7 @@ export function CDriveView() {
         {phase === "done" && (
           <motion.div className="inline-success" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <Icon name="check" size={17} />
-            已为 C 盘释放 <strong>{formatBytes(freed)}</strong> 空间
+            已为 C 盘释放 <strong>{formatBytes(shownFreed)}</strong> 空间
             {skipped > 0 && (
               <em className="inline-note">
                 另有 {skipped} 项未释放，可能需要以管理员身份运行

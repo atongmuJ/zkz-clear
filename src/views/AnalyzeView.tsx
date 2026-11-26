@@ -4,6 +4,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { Icon } from "../components/Icon";
 import { getDisks, getFolderUsage, getLargeFiles } from "../lib/api";
 import { errorMessage, formatBytes, formatPercent } from "../lib/format";
+import { useCountUp } from "../lib/useCountUp";
 import type { DiskInfo, FolderUsage, LargeFile } from "../lib/types";
 
 function Donut({ percent, size = 116, stroke = 9 }: { percent: number; size?: number; stroke?: number }) {
@@ -11,6 +12,7 @@ function Donut({ percent, size = 116, stroke = 9 }: { percent: number; size?: nu
   const circumference = 2 * Math.PI * r;
   const offset = circumference * (1 - Math.min(percent, 100) / 100);
   const color = percent > 85 ? "#e8836b" : percent > 70 ? "#d9a55c" : "#6d9fd8";
+  const shown = useCountUp(percent, 1000);
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
       <circle cx={size / 2} cy={size / 2} r={r} stroke="rgba(255,255,255,.07)" strokeWidth={stroke} fill="none" />
@@ -22,6 +24,23 @@ function Donut({ percent, size = 116, stroke = 9 }: { percent: number; size?: nu
         transition={{ duration: 1, ease: "easeOut" }}
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
       />
+      {/* 数字跟着弧线一起走，避免「环在动、数字已到位」的割裂感 */}
+      <text
+        className="donut-value"
+        x={size / 2} y={size / 2 + 1}
+        textAnchor="middle" dominantBaseline="middle"
+        fontSize="21" fontWeight="600"
+      >
+        {Math.round(shown)}%
+      </text>
+      <text
+        className="donut-caption"
+        x={size / 2} y={size / 2 + 18}
+        textAnchor="middle" dominantBaseline="middle"
+        fontSize="10"
+      >
+        已使用
+      </text>
     </svg>
   );
 }
@@ -101,10 +120,6 @@ export function AnalyzeView() {
                 >
                   <div className="disk-donut">
                     <Donut percent={usedPercent} />
-                    <div className="donut-label">
-                      <strong>{Math.round(usedPercent)}%</strong>
-                      <span>已使用</span>
-                    </div>
                   </div>
                   <div className="disk-meta">
                     <div className="disk-name"><Icon name="drive" size={16} />{disk.name}</div>
@@ -174,6 +189,13 @@ export function AnalyzeView() {
                   initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.05, duration: 0.3 }}
                 >
+                  {/* 按最大文件归一，一眼看出谁最占地方 */}
+                  <motion.span
+                    className="file-bar"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(file.size / Math.max(files[0]?.size ?? 1, 1)) * 100}%` }}
+                    transition={{ delay: 0.15 + idx * 0.05, duration: 0.7, ease: "easeOut" }}
+                  />
                   <span className="file-rank">{String(idx + 1).padStart(2, "0")}</span>
                   <span className="file-info">
                     <span className="file-name">{file.name}</span>

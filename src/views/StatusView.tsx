@@ -22,7 +22,7 @@ function MetricCard({
         <span className="metric-title">{title}</span>
       </div>
       <div className="metric-value">{value}</div>
-      <div className="metric-track">
+      <div className={`metric-track${percent >= 85 ? " hot" : percent >= 70 ? " warm" : ""}`}>
         <motion.div
           initial={{ width: 0 }} animate={{ width: `${Math.min(percent, 100)}%` }}
           transition={{ delay: delay + 0.15, duration: 0.8, ease: "easeOut" }}
@@ -96,7 +96,7 @@ export function StatusView() {
 
       <ErrorBanner message={error} onClose={() => setError("")} />
 
-      <section className="metric-grid">
+      <section className={`metric-grid${refreshing ? " is-refreshing" : ""}`}>
         <MetricCard
           icon="cpu" title="处理器" value={formatPercent(status.cpuUsage)}
           detail={`当前负载 · ${status.cpuUsage < 40 ? "状态良好" : status.cpuUsage < 75 ? "中等负载" : "负载较高"}`}
@@ -115,16 +115,28 @@ export function StatusView() {
       <section className="panel system-info-panel">
         <div className="panel-header"><div><h2>系统信息</h2><p>当前设备概况</p></div></div>
         <div className="info-grid">
-          <div className="info-item"><span>操作系统</span><strong>{status.osVersion}</strong></div>
-          <div className="info-item"><span>运行时间</span><strong>{formatDuration(parseDuration(status.uptime))}</strong></div>
-          <div className="info-item"><span>处理器架构</span><strong>x64</strong></div>
-          <div className="info-item"><span>应用版本</span><strong>张开嘴清理 0.1.0</strong></div>
+          {[
+            ["操作系统", status.osVersion],
+            ["运行时间", formatDuration(parseDuration(status.uptime))],
+            ["处理器架构", "x64"],
+            ["应用版本", `张开嘴清理 ${__APP_VERSION__}`],
+          ].map(([label, text], i) => (
+            <motion.div
+              className="info-item" key={label}
+              initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.06 * i, duration: 0.3 }}
+            >
+              <span>{label}</span><strong>{text}</strong>
+            </motion.div>
+          ))}
         </div>
       </section>
 
       <section className="advice-grid">
         <div className="advice-card">
-          <span className="advice-icon"><Icon name="pulse" size={20} /></span>
+          <span className={`advice-icon${status.cpuUsage >= 75 || memPercent >= 85 ? " is-alert" : ""}`}>
+            <Icon name="pulse" size={20} />
+          </span>
           <div>
             <h3>{status.cpuUsage >= 75 || memPercent >= 85 ? "负载偏高" : "运行良好"}</h3>
             <p>

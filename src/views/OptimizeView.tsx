@@ -39,6 +39,7 @@ export function OptimizeView() {
   };
 
   const enabledCount = items.filter((i) => i.enabled).length;
+  const loadRatio = items.length > 0 ? (enabledCount / items.length) * 100 : 0;
 
   return (
     <div className="view standard-view">
@@ -66,39 +67,63 @@ export function OptimizeView() {
             {[0, 1, 2, 3, 4].map((i) => <div key={i} className="skeleton-row" />)}
           </div>
         ) : (
-          <div className="startup-list">
-            {items.map((item, idx) => (
-              <motion.div
-                key={item.name}
-                className="startup-row"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.05, duration: 0.3 }}
-              >
-                <span className={`startup-icon ${item.enabled ? "" : "off"}`}>
-                  <Icon name="gear" size={18} />
-                </span>
-                <span className="startup-info">
-                  <span className="startup-name">{item.name}</span>
-                  <span className="startup-meta">{item.publisher} · {item.location}</span>
-                  <span className="startup-command">{item.command}</span>
-                </span>
-                <span className={`status-tag ${item.enabled ? "on" : ""}`}>
-                  {item.enabled ? "已启用" : "已禁用"}
-                </span>
-                <button
-                  type="button"
-                  className={`toggle ${item.enabled ? "on" : ""}`}
-                  disabled={busy === item.name}
-                  onClick={() => toggle(item)}
-                  aria-label={`${item.enabled ? "禁用" : "启用"} ${item.name}`}
-                  aria-pressed={item.enabled}
+          <>
+            {/* 每关掉一项，这条负载就短一截，比单纯改文字更直观 */}
+            <div className="startup-meter">
+              <div className="startup-meter-top">
+                <span>开机启动负载</span>
+                <motion.span key={enabledCount} initial={{ opacity: 0.4, y: -3 }} animate={{ opacity: 1, y: 0 }}>
+                  {enabledCount} / {items.length} 项启用
+                </motion.span>
+              </div>
+              <div className="startup-meter-track">
+                <motion.div
+                  className={`startup-meter-fill ${loadRatio <= 40 ? "light" : ""}`}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${loadRatio}%` }}
+                  transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                />
+              </div>
+            </div>
+
+            <div className="startup-list">
+              {items.map((item, idx) => (
+                <motion.div
+                  key={item.name}
+                  className={`startup-row${busy === item.name ? " is-busy" : ""}`}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05, duration: 0.3 }}
                 >
-                  <span className="toggle-knob" />
-                </button>
-              </motion.div>
-            ))}
-          </div>
+                  <span className={`startup-icon ${item.enabled ? "" : "off"}`}>
+                    <Icon name="gear" size={18} />
+                  </span>
+                  <motion.span
+                    className="startup-info"
+                    animate={{ opacity: item.enabled ? 1 : 0.58 }}
+                    transition={{ duration: 0.28 }}
+                  >
+                    <span className="startup-name">{item.name}</span>
+                    <span className="startup-meta">{item.publisher} · {item.location}</span>
+                    <span className="startup-command">{item.command}</span>
+                  </motion.span>
+                  <span className={`status-tag ${item.enabled ? "on" : ""}`}>
+                    {item.enabled ? "已启用" : "已禁用"}
+                  </span>
+                  <button
+                    type="button"
+                    className={`toggle ${item.enabled ? "on" : ""}${busy === item.name ? " is-busy" : ""}`}
+                    disabled={busy === item.name}
+                    onClick={() => toggle(item)}
+                    aria-label={`${item.enabled ? "禁用" : "启用"} ${item.name}`}
+                    aria-pressed={item.enabled}
+                  >
+                    <span className="toggle-knob" />
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+          </>
         )}
       </section>
 
