@@ -1,20 +1,72 @@
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-/// 展开形如 %TEMP% 的 Windows 环境变量
+/// 展开形如 %TEMP% 的 Windows 环境变量。
+/// Windows 环境变量名不区分大小写，注册表里的路径也可能写成 `%temp%` / `%Temp%`，
+/// 因此这里逐字符做 ASCII 大小写无关匹配，而不是只替换两种固定写法。
+const ENV_KEYS: &[&str] = &[
+    "TEMP",
+    "TMP",
+    "LOCALAPPDATA",
+    "APPDATA",
+    "USERPROFILE",
+    "WINDIR",
+    "SystemRoot",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
+    "ProgramData",
+    "PUBLIC",
+    "HOMEDRIVE",
+    "HOMEPATH",
+];
+
+fn expand_env_var(input: &str, key: &str, value: &str) -> String {
+    let needle = format!("%{}%", key);
+    let lower_needle = needle.to_ascii_lowercase();
+    let lowered = input.to_ascii_lowercase();
+    let mut lower_rest: &str = &lowered;
+    let mut rest = input;
+    let mut output = String::with_capacity(input.len() + value.len());
+
+    while let Some(index) = lower_rest.find(&lower_needle) {
+        output.push_str(&rest[..index]);
+        output.push_str(value);
+        rest = &rest[index + needle.len()..];
+        lower_rest = &lower_rest[index + needle.len()..];
+    }
+    output.push_str(rest);
+    output
+}
+
 pub fn expand_env(input: &str) -> PathBuf {
     let mut result = input.to_string();
-    const KEYS: &[&str] = &[
-        "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "WINDIR",
-        "SystemRoot", "ProgramFiles", "ProgramData", "HOMEDRIVE", "HOMEPATH",
-    ];
-    for key in KEYS {
+    for key in ENV_KEYS {
         if let Ok(value) = std::env::var(key) {
-            result = result.replace(&format!("%{}%", key), &value);
-            result = result.replace(&format!("%{}%", key.to_lowercase()), &value);
+            result = expand_env_var(&result, key, &value);
         }
     }
     PathBuf::from(result)
+}
+
+/// 返回可信的用户临时目录。环境变量被改成用户根目录或盘符根时返回 None，
+/// 防止“清理临时文件”变成递归删除个人或系统目录。
+pub fn safe_temp_dir() -> Option<PathBuf> {
+    let path = expand_env("%TEMP%");
+    let text = path
+        .to_string_lossy()
+        .to_lowercase()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_string();
+    let is_temp = text.ends_with("\\appdata\\local\\temp") || text.ends_with("\\windows\\temp");
+    if is_temp && path.is_dir() {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 /// 遍历深度上限：Windows 目录层级有限，超过此值一定是异常情况
@@ -46,7 +98,13 @@ pub fn is_reparse_point(path: &Path) -> bool {
 /// 不会因为某个巨型目录把所有线程拖死。
 const DIR_SIZE_BUDGET: Duration = Duration::from_secs(20);
 
+/// `dir_size` 使用默认的 20 秒预算；软件列表扫描会传入更短的预算，
+/// 防止几十个应用没有注册表 EstimatedSize 时把整个界面拖慢。
 pub fn dir_size(path: &Path) -> (u64, u64) {
+    dir_size_with_budget(path, DIR_SIZE_BUDGET, MAX_WALK_FILES)
+}
+
+pub fn dir_size_with_budget(path: &Path, budget: Duration, max_files: u64) -> (u64, u64) {
     if !path.exists() {
         return (0, 0);
     }
@@ -76,7 +134,7 @@ pub fn dir_size(path: &Path) -> (u64, u64) {
         if !entry.file_type().is_file() {
             continue;
         }
-        if count >= MAX_WALK_FILES || started.elapsed() >= DIR_SIZE_BUDGET {
+        if count >= max_files || started.elapsed() >= budget {
             break;
         }
         if let Ok(meta) = entry.metadata() {
@@ -136,56 +194,129 @@ pub fn remove_path(path: &Path) -> u64 {
     }
 }
 
+/// 默认外部命令预算。普通查询应在 30 秒内结束，避免阻塞 Tauri 线程池。
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(windows)]
+const COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
 /// 运行外部程序并捕获 stdout；Windows 下隐藏控制台窗口。
-/// 退出码非 0 时返回错误，避免调用方把失败当成功。
+/// 退出码非 0 或超时都会返回错误，避免调用方把失败当成功。
 pub fn run_program(program: &str, args: &[&str]) -> Result<String, String> {
-    run_command(program, args, &[])
+    run_command(program, args, &[], COMMAND_TIMEOUT)
 }
 
-/// 带环境变量运行外部程序，用于向 PowerShell 安全传递含空格/引号的值
-pub fn run_program_with_env(
+/// 允许调用方为已知耗时命令（如等待卸载程序）指定更长的预算。
+pub fn run_program_with_timeout(
     program: &str,
     args: &[&str],
     envs: &[(&str, &str)],
+    timeout: Duration,
 ) -> Result<String, String> {
-    run_command(program, args, envs)
+    run_command(program, args, envs, timeout)
 }
 
-fn run_command(program: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<String, String> {
+#[cfg(windows)]
+fn command_output(
+    program: &str,
+    status: std::process::ExitStatus,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> Result<String, String> {
+    if status.success() {
+        return Ok(String::from_utf8_lossy(stdout).to_string());
+    }
+    let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(stdout).trim().to_string();
+    // PowerShell 的失败信息可能写在 stdout，优先取非空的一侧
+    let detail = if stderr.is_empty() { stdout } else { stderr };
+    let code = status.code().unwrap_or(-1);
+    Err(if detail.is_empty() {
+        format!("{} 执行失败（退出码 {}）", program, code)
+    } else {
+        format!("{} 执行失败（退出码 {}）：{}", program, code, detail)
+    })
+}
+
+fn run_command(
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<String, String> {
     #[cfg(windows)]
     {
+        use std::io::Read;
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
         let mut cmd = std::process::Command::new(program);
-        cmd.args(args).creation_flags(CREATE_NO_WINDOW);
+        cmd.args(args)
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         for (key, value) in envs {
             cmd.env(key, value);
         }
 
-        let output = cmd
-            .output()
+        let mut child = cmd
+            .spawn()
             .map_err(|e| format!("无法启动 {}：{}", program, e))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            // PowerShell 的失败信息可能写在 stdout，优先取非空的一侧
-            let detail = if stderr.is_empty() { stdout } else { stderr };
-            let code = output.status.code().unwrap_or(-1);
-            return Err(if detail.is_empty() {
-                format!("{} 执行失败（退出码 {}）", program, code)
-            } else {
-                format!("{} 执行失败（退出码 {}）：{}", program, code, detail)
-            });
-        }
+        // 必须并发读取管道：软件列表/图标 JSON 可能远超管道缓冲区（64KB），
+        // 顺序 wait 会让子进程卡在写入上，被误判成超时。
+        let stdout_thread = {
+            let pipe = child.stdout.take();
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = pipe.read_to_end(&mut buf);
+                }
+                buf
+            })
+        };
+        let stderr_thread = {
+            let pipe = child.stderr.take();
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = pipe.read_to_end(&mut buf);
+                }
+                buf
+            })
+        };
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        let deadline = Instant::now() + timeout;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let stdout = stdout_thread.join().unwrap_or_default();
+                    let stderr = stderr_thread.join().unwrap_or_default();
+                    return command_output(program, status, &stdout, &stderr);
+                }
+                Ok(None) if Instant::now() >= deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    // 子进程结束后管道关闭，读取线程随即退出
+                    let _ = stdout_thread.join();
+                    let _ = stderr_thread.join();
+                    return Err(format!(
+                        "{} 执行超时（{} 秒），已终止以免界面卡住",
+                        program,
+                        timeout.as_secs()
+                    ));
+                }
+                Ok(None) => std::thread::sleep(COMMAND_POLL_INTERVAL),
+                Err(e) => {
+                    let _ = child.kill();
+                    return Err(format!("等待 {} 结束失败：{}", program, e));
+                }
+            }
+        }
     }
     #[cfg(not(windows))]
     {
-        let _ = (program, args, envs);
-        Ok(String::new())
+        let _ = (program, args, envs, timeout);
+        Err(format!("{} 仅在 Windows 上可用", program))
     }
 }
 
@@ -200,8 +331,12 @@ fn powershell_args(script: &str) -> String {
 }
 
 pub fn powershell(script: &str) -> Result<String, String> {
+    powershell_with_timeout(script, COMMAND_TIMEOUT)
+}
+
+pub fn powershell_with_timeout(script: &str, timeout: Duration) -> Result<String, String> {
     let full = powershell_args(script);
-    run_program(
+    run_program_with_timeout(
         "powershell",
         &[
             "-NoProfile",
@@ -211,12 +346,22 @@ pub fn powershell(script: &str) -> Result<String, String> {
             "-Command",
             &full,
         ],
+        &[],
+        timeout,
     )
 }
 
 pub fn powershell_with_env(script: &str, envs: &[(&str, &str)]) -> Result<String, String> {
+    powershell_with_env_timeout(script, envs, COMMAND_TIMEOUT)
+}
+
+pub fn powershell_with_env_timeout(
+    script: &str,
+    envs: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<String, String> {
     let full = powershell_args(script);
-    run_program_with_env(
+    run_program_with_timeout(
         "powershell",
         &[
             "-NoProfile",
@@ -227,12 +372,13 @@ pub fn powershell_with_env(script: &str, envs: &[(&str, &str)]) -> Result<String
             &full,
         ],
         envs,
+        timeout,
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_dir_contents, dir_size, is_reparse_point, remove_path};
+    use super::{clean_dir_contents, dir_size, expand_env_var, is_reparse_point, remove_path};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -288,6 +434,19 @@ mod tests {
         assert!(!root.join("sub").exists());
 
         fs::remove_dir_all(root).expect("cleanup temp dirs");
+    }
+
+    #[test]
+    fn expand_env_var_is_case_insensitive_and_replaces_all_occurrences() {
+        let expanded = expand_env_var(
+            r"%Temp%\a\%TEMP%\b\%temp%\c",
+            "TEMP",
+            r"C:\Users\Demo\AppData\Local\Temp",
+        );
+        assert_eq!(
+            expanded,
+            r"C:\Users\Demo\AppData\Local\Temp\a\C:\Users\Demo\AppData\Local\Temp\b\C:\Users\Demo\AppData\Local\Temp\c"
+        );
     }
 
     #[test]

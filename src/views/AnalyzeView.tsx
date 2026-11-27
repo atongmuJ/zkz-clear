@@ -63,7 +63,6 @@ export function AnalyzeView() {
   const [loadingFolders, setLoadingFolders] = useState(true);
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [error, setError] = useState("");
-  const [selectedDisk, setSelectedDisk] = useState(0);
 
   // 三个请求互相独立：磁盘信息很快，先渲染出来；目录统计与全盘扫描可能较慢，
   // 各自显示占位，避免用户对着整页骨架干等。
@@ -109,11 +108,10 @@ export function AnalyzeView() {
           : disks.map((disk, idx) => {
               const usedPercent = disk.total > 0 ? (disk.used / disk.total) * 100 : 0;
               return (
-                <motion.button
+                <motion.div
                   key={disk.name}
-                  type="button"
-                  className={`disk-card ${selectedDisk === idx ? "active" : ""}`}
-                  onClick={() => setSelectedDisk(idx)}
+                  className="disk-card"
+                  title="磁盘概览；下方目录与大文件统计覆盖常用位置"
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.07, duration: 0.35 }}
@@ -126,7 +124,7 @@ export function AnalyzeView() {
                     <div className="disk-capacity">{formatBytes(disk.used)} / {formatBytes(disk.total)}</div>
                     <div className="disk-free">可用 {formatBytes(disk.free)}</div>
                   </div>
-                </motion.button>
+                </motion.div>
               );
             })}
       </section>
@@ -162,6 +160,7 @@ export function AnalyzeView() {
                   </div>
                 </div>
               ))}
+              {folders.length === 0 && <p className="loading-hint">没有找到可统计的目录。</p>}
             </div>
           )}
         </section>

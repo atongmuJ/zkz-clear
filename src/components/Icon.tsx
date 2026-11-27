@@ -5,7 +5,8 @@ export type IconName =
   | "moon" | "star" | "scan" | "check" | "close"
   | "minus" | "square" | "shield" | "warning" | "arrow"
   | "folder" | "sparkle" | "refresh" | "info" | "clock"
-  | "cpu" | "memory" | "browser" | "trash" | "log" | "image";
+  | "cpu" | "memory" | "browser" | "trash" | "log" | "image"
+  | "software" | "search" | "external";
 
 const paths: Record<IconName, ReactNode> = {
   broom: <><path d="M18 3 8 13" /><path d="M8 13 3 18l2 2 2-1 1 2 5-5-5-3Z" /><path d="m11 10 2 2" /></>,
@@ -34,6 +35,9 @@ const paths: Record<IconName, ReactNode> = {
   trash: <><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6" /></>,
   log: <><path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3Z" /><path d="M9 8h6M9 12h6" /></>,
   image: <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></>,
+  software: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
+  search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></>,
+  external: <><path d="M14 4h6v6M20 4l-8 8" /><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></>,
 };
 
 interface IconProps extends SVGProps<SVGSVGElement> {

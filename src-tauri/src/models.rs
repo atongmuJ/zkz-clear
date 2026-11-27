@@ -119,3 +119,74 @@ pub struct SystemStatus {
     pub uptime: String,
     pub os_version: String,
 }
+
+/// 注册表中登记的一个 Win32 已安装应用。
+/// `size_source` 说明占用空间的来源，避免把注册表估算值伪装成实测值。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledSoftware {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub publisher: String,
+    pub install_location: String,
+    pub size: u64,
+    pub size_source: String,
+    pub path_exists: bool,
+    pub registry_key: String,
+    pub uninstall_string: String,
+    pub quiet_uninstall_string: String,
+    pub can_uninstall: bool,
+    pub source: String,
+}
+
+/// 强力卸载前展示给用户确认的单个清理目标。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupTarget {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub kind: String,
+    pub risk: String,
+    pub required: bool,
+    pub selected: bool,
+    pub exists: bool,
+    pub size: u64,
+    pub reason: String,
+}
+
+/// 强力卸载的预览计划：用户必须看到路径与清理范围后才能确认。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftwareCleanupPlan {
+    pub app_name: String,
+    pub install_location: String,
+    pub uninstall_command: String,
+    pub silent_switch: String,
+    pub targets: Vec<CleanupTarget>,
+    pub warnings: Vec<String>,
+}
+
+/// 单个清理目标的执行结果，用于把无权限、路径不存在、卸载失败明确反馈给用户。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupTargetResult {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub freed: u64,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftwareUninstallOutcome {
+    pub app_name: String,
+    pub mode: String,
+    pub success: bool,
+    pub message: String,
+    pub freed: u64,
+    pub results: Vec<CleanupTargetResult>,
+    pub needs_restart: bool,
+}

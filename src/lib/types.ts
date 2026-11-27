@@ -1,4 +1,5 @@
-export type TabKey = "clean" | "optimize" | "analyze" | "cdrive" | "status" | "about";
+export type TabKey =
+  | "clean" | "optimize" | "analyze" | "cdrive" | "software" | "status" | "about";
 
 export interface CleanItem {
   id: string;
@@ -108,3 +109,66 @@ export interface CleanOutcome {
   skipped: string[];
   details: CleanDetail[];
 }
+
+/** 注册表中登记的一个已安装软件 */
+export interface InstalledSoftware {
+  id: string;
+  name: string;
+  version: string;
+  publisher: string;
+  installLocation: string;
+  size: number;
+  /** registry=注册表估算，folder=目录实测，unknown=暂无可靠数据 */
+  sizeSource: "registry" | "folder" | "unknown";
+  pathExists: boolean;
+  registryKey: string;
+  uninstallString: string;
+  quietUninstallString: string;
+  canUninstall: boolean;
+  source: string;
+}
+
+export type CleanupRisk = "low" | "medium" | "high";
+
+/** 强力卸载的单个清理目标 */
+export interface CleanupTarget {
+  id: string;
+  name: string;
+  path: string;
+  kind: "install" | "registry" | "cache" | "config" | "data";
+  risk: CleanupRisk;
+  required: boolean;
+  selected: boolean;
+  exists: boolean;
+  size: number;
+  reason: string;
+}
+
+export interface SoftwareCleanupPlan {
+  appName: string;
+  installLocation: string;
+  uninstallCommand: string;
+  silentSwitch: string;
+  targets: CleanupTarget[];
+  warnings: string[];
+}
+
+export interface CleanupTargetResult {
+  id: string;
+  name: string;
+  status: "removed" | "skipped" | "failed";
+  freed: number;
+  message: string;
+}
+
+export interface SoftwareUninstallOutcome {
+  appName: string;
+  mode: "normal" | "force";
+  success: boolean;
+  message: string;
+  freed: number;
+  results: CleanupTargetResult[];
+  needsRestart: boolean;
+}
+
+export const FORCE_CONFIRM_PHRASE = "我确认永久卸载并清理所选内容";

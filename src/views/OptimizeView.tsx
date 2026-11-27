@@ -2,7 +2,7 @@ import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Icon } from "../components/Icon";
-import { getStartupItems, setStartupEnabled } from "../lib/api";
+import { clearApiCache, getStartupItems, setStartupEnabled } from "../lib/api";
 import { errorMessage } from "../lib/format";
 import type { StartupItem } from "../lib/types";
 
@@ -27,6 +27,8 @@ export function OptimizeView() {
     try {
       const ok = await setStartupEnabled(item.name, !item.enabled);
       if (ok) {
+        // 启动项已写入注册表，缓存里的旧状态必须失效
+        clearApiCache("startup");
         setItems((prev) =>
           prev.map((i) => (i.name === item.name ? { ...i, enabled: !i.enabled } : i))
         );
@@ -122,6 +124,7 @@ export function OptimizeView() {
                   </button>
                 </motion.div>
               ))}
+              {items.length === 0 && <div className="empty-state"><Icon name="check" size={28} /><p>没有发现可管理的启动项</p></div>}
             </div>
           </>
         )}

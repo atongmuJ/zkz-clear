@@ -19,10 +19,11 @@
 
 ## 功能
 
-- **垃圾清理** — 系统/用户临时文件、各浏览器缓存、回收站、崩溃转储、缩略图缓存，按风险分级勾选；可选「深度清理」扩展可再生缓存
+- **垃圾清理** — 系统/用户临时文件、各浏览器缓存、回收站、崩溃转储、缩略图缓存，按风险分级勾选；可选「深度清理」扩展可再生缓存；清理后记录上次释放量
 - **系统优化** — 开机启动项启停，改动前自动备份注册表值，可还原
 - **磁盘分析** — 目录占用排行 + 大文件定位（跳过 junction，不会死循环）
 - **C 盘清理** — 更新缓存、临时文件、休眠文件、系统还原点、Windows.old 等，需管理员权限的会明确标注
+- **电脑软件管理** — 扫描已安装应用，展示软件图标、版本、发布者、安装目录与占用空间；支持打开目录、普通卸载、带二次确认的强力卸载与残留清理
 - **系统状态** — CPU / 内存 / 磁盘实时概览
 - **关于** — 作者、免责声明、版本信息与友情赞助
 
@@ -34,6 +35,9 @@
 - 缩略图只删 `thumbcache_*.db`，不整目录清空
 - 回收站只清空目录内容，保留 SID 目录本身
 - 启动项优化写入注册表备份键 `ZhangZuiBackup`，可随时恢复
+- 软件管理只读取 Windows 标准卸载登记项；强力卸载先调用软件自带卸载程序，失败或超时时不会继续删文件
+- 强力卸载会逐项展示路径、风险等级与清理范围；高风险的数据/配置目录默认不勾选，用户必须二次确认
+- 卸载登记、安装目录与残留路径均有白名单/保护目录校验，不碰桌面、文档、图片、下载和 Windows 系统关键目录
 
 ## 本地开发
 
@@ -49,7 +53,7 @@ npm run tauri dev    # 桌面端调试
 
 三种方式，任选：
 
-1. **GitHub Actions（推荐）** — 推 `v*` 标签或手动触发 `build-windows` workflow，产物自动挂到 Release
+1. **GitHub Actions（推荐）** — 推 `v*` 标签只构建并保存 Actions artifact；手动触发 `build-windows` 且显式勾选 `publish` 才会创建 Release
 2. **本地一键脚本** — Windows 上双击 `build-windows.bat`，自动装依赖并出包
 3. **手动** — `npm install && npm run tauri build`，产物在 `src-tauri/target/release/bundle/nsis`
 
@@ -60,12 +64,12 @@ npm run tauri dev    # 桌面端调试
 ```
 src/                  React 前端（views / components / lib）
 src-tauri/src/
-  commands/           cleanup / optimize / analyze / cdrive / system
-  platform.rs         Windows 平台层：安全删目录、注册表、进程调用
+  commands/           cleanup / optimize / analyze / cdrive / software / system / history
+  platform.rs         Windows 平台层：安全删目录、注册表、进程调用（外部命令统一超时）
 portable/             纯 PowerShell 免安装版（无 Tauri 依赖的备用方案）
 ```
 
-所有耗时命令走 `spawn_blocking`，扫描上万文件时界面不会假死。
+所有耗时命令走 `spawn_blocking`，扫描上万文件时界面不会假死；只读查询带 30 秒缓存，清理或卸载后自动失效。
 
 ## 许可
 

@@ -17,6 +17,17 @@ const BACKUP_KEY: &str = r"HKCU:\Software\Microsoft\Windows\CurrentVersion\RunZk
 const HKCU_INDEX: usize = 0;
 const HKLM_INDEX: usize = 1;
 
+/// 启动项名称会参与拼快捷方式路径与注册表值名，必须限制为单个文件名片段。
+fn validate_startup_name(name: &str) -> Result<(), String> {
+    let invalid = name.chars().any(|c| {
+        matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+    });
+    if name.trim().is_empty() || name.len() > 255 || invalid || name.contains("..") {
+        return Err("启动项名称包含非法字符".to_string());
+    }
+    Ok(())
+}
+
 /// 注册表值。备份项在 `value` 前缀中记录来源分支（`HKCU|...` / `HKLM|...`），
 /// 恢复时才能写回原来的位置；注册表类型字段只能是合法的 RegistryValueKind，
 /// 不能像旧版那样把 `HKLM` 塞进 `kind`（那会直接导致写入失败）。
@@ -327,6 +338,7 @@ pub async fn get_startup_items() -> Result<Vec<StartupItem>, String> {
 
 #[tauri::command]
 pub async fn set_startup_enabled(name: String, enabled: bool) -> Result<bool, String> {
+    validate_startup_name(&name)?;
     tauri::async_runtime::spawn_blocking(move || set_startup_enabled_blocking(&name, enabled))
         .await
         .map_err(|e| format!("修改启动项异常中断：{}", e))?
@@ -334,7 +346,15 @@ pub async fn set_startup_enabled(name: String, enabled: bool) -> Result<bool, St
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_backup_value, encode_backup_value, value_kind};
+    use super::{decode_backup_value, encode_backup_value, validate_startup_name, value_kind};
+
+    #[test]
+    fn startup_name_rejects_path_traversal() {
+        assert!(validate_startup_name("Steam").is_ok());
+        assert!(validate_startup_name(r"..\Desktop\payload").is_err());
+        assert!(validate_startup_name("a/b").is_err());
+        assert!(validate_startup_name("").is_err());
+    }
 
     #[test]
     fn expand_string_is_preserved_for_percent_paths() {

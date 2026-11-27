@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use tauri::ipc::Channel;
 
 use crate::models::{CleanCategory, CleanDetail, CleanItem, CleanOutcome, ScanProgress};
-use crate::platform::{clean_dir_contents, dir_size, expand_env, remove_path};
+use crate::platform::{clean_dir_contents, dir_size, expand_env, remove_path, safe_temp_dir};
 
 /// 清理方式：清空目录内容，或删除指定文件
 #[derive(Clone, Copy)]
@@ -347,10 +347,9 @@ fn build_specs(deep: bool) -> Vec<CategorySpec> {
             targets: vec![Target::new(
                 "临时文件目录",
                 ClearMode::Contents,
-                vec![
-                    PathBuf::from("C:\\Windows\\Temp"),
-                    expand_env("%TEMP%"),
-                ],
+                safe_temp_dir()
+                    .map(|temp| vec![PathBuf::from("C:\\Windows\\Temp"), temp])
+                    .unwrap_or_else(|| vec![PathBuf::from("C:\\Windows\\Temp")]),
             )],
         },
         CategorySpec {

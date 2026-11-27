@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::models::{DiskInfo, FolderUsage, LargeFile};
 use crate::platform::{dir_size, expand_env, powershell, run_program};
@@ -96,8 +96,13 @@ fn format_date(secs: u64) -> String {
     format!("{:04}-{:02}-{:02}", year, month, day)
 }
 
+const LARGE_FILE_BUDGET: Duration = Duration::from_secs(15);
+const LARGE_FILE_MAX_ENTRIES: usize = 200_000;
+
 fn large_files_in(root: &Path, threshold: u64) -> Vec<LargeFile> {
     let mut files = Vec::new();
+    let started = Instant::now();
+    let mut scanned = 0usize;
     for entry in walkdir::WalkDir::new(root)
         .max_depth(5)
         .follow_links(false)
@@ -116,6 +121,10 @@ fn large_files_in(root: &Path, threshold: u64) -> Vec<LargeFile> {
         })
         .filter_map(|e| e.ok())
     {
+        if scanned >= LARGE_FILE_MAX_ENTRIES || started.elapsed() >= LARGE_FILE_BUDGET {
+            break;
+        }
+        scanned += 1;
         if !entry.file_type().is_file() {
             continue;
         }

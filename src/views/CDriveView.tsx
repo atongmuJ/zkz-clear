@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Icon } from "../components/Icon";
 import { RiskConfirmDialog } from "../components/RiskConfirmDialog";
-import { cleanCDrive, getCDriveItems, getDisks } from "../lib/api";
+import { cleanCDrive, clearApiCache, getCDriveItems, getDisks, recordCleanup } from "../lib/api";
 import { errorMessage, formatBytes } from "../lib/format";
 import { useCountUp } from "../lib/useCountUp";
 import type { CDriveItem, DeepWarning, DiskInfo } from "../lib/types";
@@ -25,6 +25,7 @@ export function CDriveView() {
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
     Promise.all([getCDriveItems(deepMode), getDisks()])
       .then(([list, disks]) => {
         if (!active) return;
@@ -39,6 +40,7 @@ export function CDriveView() {
   }, [deepMode]);
 
   const toggle = (id: string) => {
+    if (phase === "cleaning" || loading) return;
     setPhase("idle");
     setSelected((prev) => {
       const next = new Set(prev);
@@ -49,13 +51,18 @@ export function CDriveView() {
   };
 
   const runClean = async () => {
+    if (phase === "cleaning") return;
     setConfirmOpen(false);
     const ids = Array.from(selected);
     setPhase("cleaning");
     setError("");
     try {
       const outcome = await cleanCDrive(ids, deepMode);
+      // 磁盘占用与 C 盘项目已变化，让只读缓存失效，避免切页后看到旧数据
+      clearApiCache();
       setFreed(outcome.freed);
+      const includedDeep = outcome.details.some((detail) => detail.deep);
+      void recordCleanup(outcome.freed, includedDeep).catch(() => { /* 记录失败不影响结果 */ });
       setSkipped(outcome.skipped.length);
       setSkippedNames(items.filter((i) => outcome.skipped.includes(i.id)).map((i) => i.name));
       setPhase("done");
@@ -136,7 +143,9 @@ export function CDriveView() {
         <input
           type="checkbox"
           checked={deepMode}
+          disabled={phase === "cleaning" || loading}
           onChange={(e) => {
+            if (phase === "cleaning" || loading) return;
             setDeepMode(e.target.checked);
             setPhase("idle");
           }}
@@ -197,6 +206,7 @@ export function CDriveView() {
                   type="button" key={item.id}
                   layout
                   className={`cdrive-row ${isSelected ? "selected" : ""}${phase === "cleaning" && isSelected ? " is-busy" : ""}`}
+                  disabled={phase === "cleaning" || loading}
                   onClick={() => toggle(item.id)}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -257,7 +267,7 @@ export function CDriveView() {
         <button
           type="button"
           className="primary-btn"
-          disabled={selected.size === 0 || phase === "cleaning"}
+          disabled={selected.size === 0 || phase === "cleaning" || loading}
           onClick={handleClean}
         >
           {phase === "cleaning" ? (
@@ -270,6 +280,7 @@ export function CDriveView() {
 
       <RiskConfirmDialog
         open={confirmOpen}
+        scope="cdrive"
         title="清除风险须知"
         warnings={deepWarnings}
         size={deepSelectedSize}

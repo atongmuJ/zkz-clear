@@ -3,6 +3,7 @@ import type {
   CleanCategory,
   DiskInfo,
   FolderUsage,
+  InstalledSoftware,
   LargeFile,
   StartupItem,
   SystemStatus,
@@ -185,3 +186,118 @@ export const MOCK_STATUS: SystemStatus = {
   uptime: "3 天 7 小时",
   osVersion: "Windows 11 专业版 24H2",
 };
+
+export const MOCK_SOFTWARE: InstalledSoftware[] = [
+  {
+    id: "mock:adobe-acrobat",
+    name: "Adobe Acrobat (64-bit)",
+    version: "24.001.20604",
+    publisher: "Adobe Inc.",
+    installLocation: "C:\\Program Files\\Adobe\\Acrobat DC",
+    size: 2.84 * GB,
+    sizeSource: "registry",
+    pathExists: true,
+    registryKey: "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Adobe Acrobat",
+    uninstallString: "MsiExec.exe /I{AC76BA86-1033-0000-7760-000000000001}",
+    quietUninstallString: "MsiExec.exe /X{AC76BA86-1033-0000-7760-000000000001} /qn",
+    canUninstall: true,
+    source: "系统",
+  },
+  {
+    id: "mock:vscode",
+    name: "Microsoft Visual Studio Code",
+    version: "1.96.2",
+    publisher: "Microsoft Corporation",
+    installLocation: "C:\\Program Files\\Microsoft VS Code",
+    size: 486 * MB,
+    sizeSource: "folder",
+    pathExists: true,
+    registryKey: "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Microsoft VS Code",
+    uninstallString: "\"C:\\Program Files\\Microsoft VS Code\\unins000.exe\"",
+    quietUninstallString: "",
+    canUninstall: true,
+    source: "系统",
+  },
+  {
+    id: "mock:steam",
+    name: "Steam",
+    version: "latest",
+    publisher: "Valve Corporation",
+    installLocation: "D:\\Games\\Steam",
+    size: 4.12 * GB,
+    sizeSource: "registry",
+    pathExists: true,
+    registryKey: "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam",
+    uninstallString: "\"D:\\Games\\Steam\\uninstall.exe\"",
+    quietUninstallString: "",
+    canUninstall: true,
+    source: "当前用户",
+  },
+  {
+    id: "mock:spotify",
+    name: "Spotify",
+    version: "1.2.71",
+    publisher: "Spotify AB",
+    installLocation: "C:\\Users\\Demo\\AppData\\Roaming\\Spotify",
+    size: 318 * MB,
+    sizeSource: "registry",
+    pathExists: true,
+    registryKey: "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Spotify",
+    uninstallString: "\"C:\\Users\\Demo\\AppData\\Roaming\\Spotify\\Uninstall.exe\" /S",
+    quietUninstallString: "",
+    canUninstall: true,
+    source: "当前用户",
+  },
+  {
+    id: "mock:7zip",
+    name: "7-Zip 24.09 (x64 edition)",
+    version: "24.09",
+    publisher: "Igor Pavlov",
+    installLocation: "C:\\Program Files\\7-Zip",
+    size: 12.6 * MB,
+    sizeSource: "registry",
+    pathExists: true,
+    registryKey: "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\7-Zip",
+    uninstallString: "MsiExec.exe /I{23170F69-40C1-2702-2409-000001000000}",
+    quietUninstallString: "",
+    canUninstall: true,
+    source: "系统(32位)",
+  },
+  {
+    id: "mock:old-tool",
+    name: "Old Photo Studio",
+    version: "3.1.0",
+    publisher: "Example Studio",
+    installLocation: "D:\\Apps\\OldPhotoStudio",
+    size: 0,
+    sizeSource: "unknown",
+    pathExists: false,
+    registryKey: "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\OldPhotoStudio",
+    uninstallString: "\"D:\\Apps\\OldPhotoStudio\\uninstall.exe\"",
+    quietUninstallString: "",
+    canUninstall: true,
+    source: "系统(32位)",
+  },
+];
+
+/** 浏览器预览没有真实 exe 可提取图标，用首字母彩色图标模拟“每个软件不同”的效果。 */
+const MOCK_ICON_COLORS = [
+  ["#6d9fd8", "#3a5f8f"],
+  ["#e9915a", "#a94f35"],
+  ["#4fb8a8", "#2c746d"],
+  ["#b888dc", "#6b4b9a"],
+  ["#e4b95b", "#a17c2c"],
+  ["#7cc36b", "#3f7d42"],
+];
+
+function mockSoftwareIcon(name: string, index: number): string {
+  const initials =
+    name.replace(/[^A-Za-z0-9\u4e00-\u9fa5]/g, "").slice(0, 2).toUpperCase() || "AP";
+  const [from, to] = MOCK_ICON_COLORS[index % MOCK_ICON_COLORS.length];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="url(#g)"/><text x="24" y="31" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="18" font-weight="700" fill="#fff">${initials}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+export const MOCK_SOFTWARE_ICONS: Record<string, string> = Object.fromEntries(
+  MOCK_SOFTWARE.map((app, index) => [app.registryKey, mockSoftwareIcon(app.name, index)])
+);

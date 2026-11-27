@@ -7,7 +7,9 @@ import type { DeepWarning } from "../lib/types";
 interface RiskConfirmDialogProps {
   open: boolean;
   title?: string;
-  /** 本次将被删除的深度项及风险说明 */
+  /** clean=可再生的清理分类；cdrive=可能含系统配置或备份的 C 盘专项 */
+  scope?: "clean" | "cdrive";
+  /** 本次将被删除的项目及风险说明 */
   warnings: DeepWarning[];
   /** 预计释放的空间 */
   size: number;
@@ -22,12 +24,14 @@ interface RiskConfirmDialogProps {
 export function RiskConfirmDialog({
   open,
   title = "深度清理风险须知",
+  scope = "clean",
   warnings,
   size,
   onConfirm,
   onCancel,
 }: RiskConfirmDialogProps) {
   const [acknowledged, setAcknowledged] = useState(false);
+  const isCDrive = scope === "cdrive";
 
   // 每次重新打开都清空勾选，避免上一次的确认状态被沿用
   useEffect(() => {
@@ -70,13 +74,17 @@ export function RiskConfirmDialog({
               <span className="risk-icon"><Icon name="warning" size={24} /></span>
               <div>
                 <h2 id="risk-title">{title}</h2>
-                <p>以下内容超出普通清理范围，请确认后再继续</p>
+                <p>
+                  {isCDrive
+                    ? "以下项目包含系统配置或备份，删除后不可恢复，请逐项确认"
+                    : "以下内容超出普通清理范围，请确认后再继续"}
+                </p>
               </div>
             </div>
 
             <div className="risk-summary">
               <Icon name="trash" size={15} />
-              本次将删除 <strong>{warnings.length}</strong> 类深度数据，预计释放 <strong>{formatBytes(size)}</strong>
+              本次将删除 <strong>{warnings.length}</strong> {isCDrive ? "个项目" : "类深度数据"}，预计释放 <strong>{formatBytes(size)}</strong>
             </div>
 
             <ul className="risk-list">
@@ -95,7 +103,11 @@ export function RiskConfirmDialog({
 
             <div className="risk-notice">
               <Icon name="shield" size={16} />
-              <span>本软件不会删除桌面、文档、图片、下载等个人文件，也不会修改系统关键目录。深度项均为可再生的缓存或日志。</span>
+              <span>
+                {isCDrive
+                  ? "其中部分项目会禁用系统功能或删除备份，可能不可恢复；本工具不会主动删除桌面、文档、图片、下载等个人文件夹。"
+                  : "本软件不会删除桌面、文档、图片、下载等个人文件，也不会修改系统关键目录。深度项均为可再生的缓存或日志。"}
+              </span>
             </div>
 
             <label className="risk-ack">
@@ -119,7 +131,7 @@ export function RiskConfirmDialog({
                 onClick={() => { if (acknowledged) onConfirm(); }}
               >
                 <Icon name="warning" size={16} />
-                确认深度清理
+                {isCDrive ? "确认清理所选项目" : "确认深度清理"}
               </button>
             </div>
           </motion.div>

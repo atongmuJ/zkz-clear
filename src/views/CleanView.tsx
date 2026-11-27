@@ -5,7 +5,7 @@ import { Earth } from "../components/Earth";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Icon, type IconName } from "../components/Icon";
 import { RiskConfirmDialog } from "../components/RiskConfirmDialog";
-import { cleanJunk, getLastCleanup, recordCleanup, scanJunk } from "../lib/api";
+import { cleanJunk, clearApiCache, getLastCleanup, recordCleanup, scanJunk } from "../lib/api";
 import { errorMessage, formatBytes } from "../lib/format";
 import { useCountUp } from "../lib/useCountUp";
 import type { CleanCategory, CleanDetail, DeepWarning, LastCleanup, ScanProgress } from "../lib/types";
@@ -29,6 +29,7 @@ export function CleanView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [freed, setFreed] = useState(0);
   const [details, setDetails] = useState<CleanDetail[]>([]);
+  const [didDeep, setDidDeep] = useState(false);
   const [lastCleanup, setLastCleanup] = useState<LastCleanup | null>(null);
   const [error, setError] = useState("");
   // 深度模式默认关闭：普通清理保持原有安全范围
@@ -44,6 +45,8 @@ export function CleanView() {
   }, []);
 
   const handleScan = useCallback(async () => {
+    // 防止连点触发两次并发扫描，导致进度与结果互相覆盖
+    if (phase === "scanning") return;
     setPhase("scanning");
     setError("");
     setProgress(EMPTY_PROGRESS);
@@ -57,25 +60,31 @@ export function CleanView() {
       setError(errorMessage(err, "扫描失败，请重试"));
       setPhase("idle");
     }
-  }, [deepMode]);
+  }, [deepMode, phase]);
 
   /** 真正执行清理 */
   const runClean = useCallback(async () => {
+    if (phase === "cleaning") return;
     setConfirmOpen(false);
     setPhase("cleaning");
     setError("");
     try {
       const outcome = await cleanJunk(Array.from(selected), deepMode);
+      // 清理后磁盘与首页统计都变了，缓存必须失效
+      clearApiCache();
       setFreed(outcome.freed);
       setDetails(outcome.details);
-      setLastCleanup({ timestamp: Date.now(), freed: outcome.freed, deep: deepMode });
-      void recordCleanup(outcome.freed, deepMode).catch(() => { /* 记录失败不影响结果展示 */ });
+      // 以实际清理明细为准：开启深度模式但只勾选普通项，不应被记为深度清理。
+      const includedDeep = outcome.details.some((detail) => detail.deep);
+      setDidDeep(includedDeep);
+      setLastCleanup({ timestamp: Date.now(), freed: outcome.freed, deep: includedDeep });
+      void recordCleanup(outcome.freed, includedDeep).catch(() => { /* 记录失败不影响结果展示 */ });
       setPhase("done");
     } catch (err) {
       setError(errorMessage(err, "清理失败，请重试"));
       setPhase("result");
     }
-  }, [selected, deepMode]);
+  }, [selected, deepMode, phase]);
 
   const handleClean = useCallback(() => {
     if (selected.size === 0) return;
@@ -92,7 +101,7 @@ export function CleanView() {
     .filter((c) => c.deep && selected.has(c.id))
     .map((c) => ({
       name: c.name,
-      warning: `${c.description}。该项仅可通过深度清理模式删除，删除后无法恢复，但不包含个人文档或系统关键文件。`,
+      warning: `${c.description}。该项仅可通过深度清理模式删除，请确认清理范围；不包含个人文档或系统关键文件。`,
     }));
   const deepSelectedSize = categories
     .filter((c) => c.deep && selected.has(c.id))
@@ -238,14 +247,13 @@ export function CleanView() {
               <span className="toolbar-hint">选择要清理的分类</span>
             </div>
 
-            <div className="category-list" role="list">
+            <div className="category-list">
               {categories.map((category, idx) => {
                 const isSelected = selected.has(category.id);
                 return (
                   <motion.button
                     key={category.id}
                     type="button"
-                    role="listitem"
                     className={`category-row ${isSelected ? "selected" : ""}`}
                     onClick={() => toggleCategory(category.id)}
                     initial={{ opacity: 0, x: -12 }}
@@ -271,6 +279,9 @@ export function CleanView() {
                   </motion.button>
                 );
               })}
+              {categories.length === 0 && (
+                <div className="empty-state"><Icon name="check" size={28} /><p>没有发现可清理项，电脑状态良好</p></div>
+              )}
             </div>
 
             <footer className="result-footer">
@@ -306,7 +317,7 @@ export function CleanView() {
         )}
 
         {phase === "done" && (
-          <DoneState key="done" freed={freed} details={details} deep={deepMode} onRescan={handleScan} />
+          <DoneState key="done" freed={freed} details={details} deep={didDeep} onRescan={handleScan} />
         )}
       </AnimatePresence>
 

@@ -39,9 +39,9 @@ export function StatusView() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  const load = useCallback(async (shouldApply: () => boolean = () => true) => {
+  const load = useCallback(async (refresh = false, shouldApply: () => boolean = () => true) => {
     try {
-      const data = await getSystemStatus();
+      const data = await getSystemStatus(refresh);
       if (shouldApply()) {
         setStatus(data);
         setError("");
@@ -58,13 +58,14 @@ export function StatusView() {
 
   useEffect(() => {
     let active = true;
-    void load(() => active);
+    void load(false, () => active);
     return () => { active = false; };
   }, [load]);
 
   const refresh = () => {
     setRefreshing(true);
-    void load();
+    // 手动刷新必须绕过只读缓存，否则会看到 30 秒前的读数
+    void load(true);
   };
 
   if (loading || !status) {
@@ -118,7 +119,6 @@ export function StatusView() {
           {[
             ["操作系统", status.osVersion],
             ["运行时间", formatDuration(parseDuration(status.uptime))],
-            ["处理器架构", "x64"],
             ["应用版本", `张开嘴清理 ${__APP_VERSION__}`],
           ].map(([label, text], i) => (
             <motion.div

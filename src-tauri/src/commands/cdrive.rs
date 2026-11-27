@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::models::{CDriveItem, CleanDetail, CleanOutcome};
 use crate::platform::{
-    clean_dir_contents, dir_size, expand_env, powershell, remove_path, run_program,
+    clean_dir_contents, dir_size, powershell, remove_path, run_program, safe_temp_dir,
 };
 
 fn file_size(path: &str) -> u64 {
@@ -152,12 +152,14 @@ fn get_cdrive_items_blocking(deep: bool) -> Vec<CDriveItem> {
         "C:\\ProgramData\\Microsoft\\Windows Defender\\Quarantine",
     ))
     .0;
-    let temp = dir_size(Path::new("C:\\Windows\\Temp")).0 + dir_size(&expand_env("%TEMP%")).0;
+    let temp = dir_size(Path::new("C:\\Windows\\Temp")).0
+        + safe_temp_dir().map(|p| dir_size(&p).0).unwrap_or(0);
     let old_windows = dir_size(Path::new("C:\\Windows.old")).0;
 
     let mut result = vec![
         item("winupdate", "Windows 更新缓存", "旧版本更新安装文件与下载缓存", winupdate,
-             "可安全清理，不影响系统运行", true, false, SAFE_WARNING),
+             "清理后会重启更新服务", true, false,
+             "将临时停止 Windows Update 服务并删除已下载的旧安装文件；需要管理员权限。清理结束后会重新启动服务。"),
         item("hiberfil", "休眠文件", "hiberfil.sys，关闭休眠后可释放", hiberfil,
              "清理后将禁用休眠功能", false, false,
              "将关闭系统休眠功能并删除 hiberfil.sys。快速启动可能失效；休眠中的会话无法恢复。个人文档不受影响。"),
@@ -180,32 +182,47 @@ fn get_cdrive_items_blocking(deep: bool) -> Vec<CDriveItem> {
     result
 }
 
+/// 清理时只做静态 id 白名单校验，避免为了拿到名称重新执行一次完整目录扫描。
+fn known_item(id: &str, deep: bool) -> Option<(&'static str, bool)> {
+    match id {
+        "winupdate" => Some(("Windows 更新缓存", false)),
+        "hiberfil" => Some(("休眠文件", false)),
+        "restore" => Some(("系统还原点", false)),
+        "defender" => Some(("Defender 隔离文件", false)),
+        "tempwin" => Some(("C 盘临时文件", false)),
+        "oldwindows" => Some(("Windows.old", false)),
+        "deep-delivery" if deep => Some(("更新分发缓存", true)),
+        "deep-reports" if deep => Some(("内核与错误报告", true)),
+        "deep-logs" if deep => Some(("安装维护日志", true)),
+        "deep-setup" if deep => Some(("系统安装临时文件", true)),
+        _ => None,
+    }
+}
+
 fn clean_cdrive_blocking(item_ids: Vec<String>, deep: bool) -> CleanOutcome {
     let mut freed = 0u64;
     let mut skipped: Vec<String> = Vec::new();
     let mut details: Vec<CleanDetail> = Vec::new();
 
     // 安全护栏：深度项只在 deep=true 时执行，避免绕过确认弹窗直接调用命令
-    let allowed: Vec<CDriveItem> = get_cdrive_items_blocking(deep)
-        .into_iter()
-        .filter(|i| !i.deep || deep)
-        .collect();
-
     for id in item_ids.iter() {
-        let item = allowed.iter().find(|i| &i.id == id);
-        if item.is_none() {
+        let Some((item_name, item_deep)) = known_item(id, deep) else {
             skipped.push(id.clone());
             continue;
-        }
-        let item = item.unwrap();
+        };
         let before = freed;
         match id.as_str() {
             "winupdate" => {
-                let _ = run_program("net", &["stop", "wuauserv"]);
-                freed = freed.saturating_add(clean_dir_contents(Path::new(
-                    "C:\\Windows\\SoftwareDistribution\\Download",
-                )));
-                let _ = run_program("net", &["start", "wuauserv"]);
+                if run_program("net", &["stop", "wuauserv"]).is_ok() {
+                    freed = freed.saturating_add(clean_dir_contents(Path::new(
+                        "C:\\Windows\\SoftwareDistribution\\Download",
+                    )));
+                    if let Err(err) = run_program("net", &["start", "wuauserv"]) {
+                        eprintln!("Windows Update 服务重启失败，请手动启动：{}", err);
+                    }
+                } else {
+                    eprintln!("无法停止 Windows Update 服务，已跳过更新缓存清理");
+                }
             }
             "hiberfil" => {
                 // 只有 powercfg 真正成功时才计入释放量，普通用户会因权限不足而失败
@@ -230,7 +247,9 @@ fn clean_cdrive_blocking(item_ids: Vec<String>, deep: bool) -> CleanOutcome {
             }
             "tempwin" => {
                 freed = freed.saturating_add(clean_dir_contents(Path::new("C:\\Windows\\Temp")));
-                freed = freed.saturating_add(clean_dir_contents(&expand_env("%TEMP%")));
+                if let Some(temp) = safe_temp_dir() {
+                    freed = freed.saturating_add(clean_dir_contents(&temp));
+                }
             }
             "oldwindows" => {
                 freed = freed.saturating_add(remove_path(Path::new("C:\\Windows.old")));
@@ -270,9 +289,9 @@ fn clean_cdrive_blocking(item_ids: Vec<String>, deep: bool) -> CleanOutcome {
             skipped.push(id.clone());
         }
         details.push(CleanDetail {
-            name: item.name.clone(),
+            name: item_name.to_string(),
             freed: item_freed,
-            deep: item.deep,
+            deep: item_deep,
         });
     }
 

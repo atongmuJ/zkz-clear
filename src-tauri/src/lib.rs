@@ -8,6 +8,10 @@ use commands::{
     cleanup::{clean_junk, scan_junk},
     history::{get_last_cleanup, record_cleanup},
     optimize::{get_startup_items, set_startup_enabled},
+    software::{
+        force_uninstall_software, get_installed_software, get_software_icons,
+        open_software_location, preview_force_uninstall, uninstall_software,
+    },
     system::{get_system_status, open_path},
 };
 
@@ -28,6 +32,12 @@ pub fn run() {
             clean_cdrive,
             get_system_status,
             open_path,
+            get_installed_software,
+            get_software_icons,
+            open_software_location,
+            preview_force_uninstall,
+            uninstall_software,
+            force_uninstall_software,
         ])
         .run(tauri::generate_context!())
         .expect("error while running 张开嘴清理 application");

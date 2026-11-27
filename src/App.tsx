@@ -8,6 +8,7 @@ import { AnalyzeView } from "./views/AnalyzeView";
 import { CDriveView } from "./views/CDriveView";
 import { CleanView } from "./views/CleanView";
 import { OptimizeView } from "./views/OptimizeView";
+import { SoftwareView } from "./views/SoftwareView";
 import { StatusView } from "./views/StatusView";
 
 export default function App() {
@@ -22,6 +23,9 @@ export default function App() {
         <AnimatePresence mode="wait">
           <motion.div
             key={tab}
+            role="tabpanel"
+            id={`panel-${tab}`}
+            aria-labelledby={`tab-${tab}`}
             className="view-wrapper"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -32,6 +36,7 @@ export default function App() {
             {tab === "optimize" && <OptimizeView />}
             {tab === "analyze" && <AnalyzeView />}
             {tab === "cdrive" && <CDriveView />}
+            {tab === "software" && <SoftwareView />}
             {tab === "status" && <StatusView />}
             {tab === "about" && <AboutView />}
           </motion.div>

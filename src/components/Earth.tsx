@@ -60,7 +60,7 @@ export function Earth({ scanning = false }: EarthProps) {
   }, [scanning]);
 
   return (
-    <div className={`earth-scene${scanning ? " is-scanning" : ""}`} aria-hidden="true">
+    <div className={`earth-scene${scanning ? " is-scanning" : ""}`}>
       <div className="star-field">
         {STARS.map((star, i) => (
           <span
