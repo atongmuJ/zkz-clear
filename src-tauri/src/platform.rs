@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// 展开形如 %TEMP% 的 Windows 环境变量
 pub fn expand_env(input: &str) -> PathBuf {
@@ -19,7 +20,7 @@ pub fn expand_env(input: &str) -> PathBuf {
 /// 遍历深度上限：Windows 目录层级有限，超过此值一定是异常情况
 const MAX_WALK_DEPTH: usize = 32;
 /// 单次统计的文件数上限，避免个别超大目录让界面长时间无响应
-const MAX_WALK_FILES: u64 = 500_000;
+const MAX_WALK_FILES: u64 = 300_000;
 
 /// 判断路径是否为重解析点（junction / 符号链接 / OneDrive 占位符）。
 /// 统计大小时必须跳过，否则 `C:\Users\*\AppData\Local\Application Data`
@@ -40,24 +41,42 @@ pub fn is_reparse_point(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// 递归统计目录大小（字节）与文件数量，忽略无法访问的路径
+/// 递归统计目录大小（字节）与文件数量，忽略无法访问的路径。
+/// 带时间预算：超时或达到文件数上限时返回已统计的部分，保证界面一定会出结果，
+/// 不会因为某个巨型目录把所有线程拖死。
+const DIR_SIZE_BUDGET: Duration = Duration::from_secs(20);
+
 pub fn dir_size(path: &Path) -> (u64, u64) {
     if !path.exists() {
         return (0, 0);
     }
+    let started = Instant::now();
     let mut size = 0u64;
     let mut count = 0u64;
     let walker = walkdir::WalkDir::new(path)
         .max_depth(MAX_WALK_DEPTH)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|entry| entry.depth() == 0 || !is_reparse_point(entry.path()));
+        // 关键性能修复：只对「目录」判断重解析点。文件不可能是 junction，
+        // 旧版对几十万个文件逐个做 symlink_metadata，是「空间占用分布」一直
+        // 转圈的根因；walkdir 的 file_type 来自目录项，不产生额外系统调用。
+        .filter_entry(|entry| {
+            if entry.depth() == 0 {
+                return true;
+            }
+            let kind = entry.file_type();
+            if kind.is_dir() {
+                !is_reparse_point(entry.path())
+            } else {
+                true
+            }
+        });
 
     for entry in walker.filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
             continue;
         }
-        if count >= MAX_WALK_FILES {
+        if count >= MAX_WALK_FILES || started.elapsed() >= DIR_SIZE_BUDGET {
             break;
         }
         if let Ok(meta) = entry.metadata() {

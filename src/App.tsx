@@ -3,6 +3,7 @@ import { useState } from "react";
 import { NavBar } from "./components/NavBar";
 import { TitleBar } from "./components/TitleBar";
 import type { TabKey } from "./lib/types";
+import { AboutView } from "./views/AboutView";
 import { AnalyzeView } from "./views/AnalyzeView";
 import { CDriveView } from "./views/CDriveView";
 import { CleanView } from "./views/CleanView";
@@ -32,6 +33,7 @@ export default function App() {
             {tab === "analyze" && <AnalyzeView />}
             {tab === "cdrive" && <CDriveView />}
             {tab === "status" && <StatusView />}
+            {tab === "about" && <AboutView />}
           </motion.div>
         </AnimatePresence>
       </main>

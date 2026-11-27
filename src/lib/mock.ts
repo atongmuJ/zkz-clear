@@ -18,6 +18,7 @@ export const MOCK_CATEGORIES: CleanCategory[] = [
     description: "Windows 与应用程序产生的临时文件",
     icon: "temp",
     risk: "safe",
+    deep: false,
     totalSize: 1.84 * GB,
     items: [
       { id: "t1", name: "临时文件目录", path: "C:\\Windows\\Temp", size: 1.84 * GB, count: 2140, categoryId: "temp" },
@@ -29,6 +30,7 @@ export const MOCK_CATEGORIES: CleanCategory[] = [
     description: "Edge / Chrome / Firefox 的网页缓存",
     icon: "browser",
     risk: "safe",
+    deep: false,
     totalSize: 926 * MB,
     items: [
       { id: "b1", name: "Microsoft Edge 缓存", path: "AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Cache", size: 512 * MB, count: 3421, categoryId: "browser" },
@@ -42,6 +44,7 @@ export const MOCK_CATEGORIES: CleanCategory[] = [
     description: "已删除但仍占用磁盘空间的文件",
     icon: "trash",
     risk: "safe",
+    deep: false,
     totalSize: 2.31 * GB,
     items: [
       { id: "r1", name: "回收站内容", path: "C:\\$Recycle.Bin", size: 2.31 * GB, count: 110, categoryId: "recycle" },
@@ -53,6 +56,7 @@ export const MOCK_CATEGORIES: CleanCategory[] = [
     description: "系统日志、崩溃报告与预取记录",
     icon: "log",
     risk: "notice",
+    deep: false,
     totalSize: 684 * MB,
     items: [
       { id: "l1", name: "系统日志", path: "C:\\Windows\\Logs", size: 312 * MB, count: 156, categoryId: "logs" },
@@ -66,9 +70,51 @@ export const MOCK_CATEGORIES: CleanCategory[] = [
     description: "文件资源管理器的图片预览缓存",
     icon: "image",
     risk: "safe",
+    deep: false,
     totalSize: 218 * MB,
     items: [
       { id: "th1", name: "缩略图数据库", path: "AppData\\Local\\Microsoft\\Windows\\Explorer", size: 218 * MB, count: 4, categoryId: "thumb" },
+    ],
+  },
+];
+
+export const MOCK_DEEP_CATEGORIES: CleanCategory[] = [
+  {
+    id: "deep-browser",
+    name: "浏览器深度缓存",
+    description: "Service Worker 与着色器缓存，下次上网会重新生成",
+    icon: "browser",
+    risk: "deep",
+    deep: true,
+    totalSize: 1.42 * GB,
+    items: [
+      { id: "db1", name: "Edge 渲染缓存", path: "AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Service Worker", size: 812 * MB, count: 3204, categoryId: "deep-browser" },
+      { id: "db2", name: "Chrome 渲染缓存", path: "AppData\\Local\\Google\\Chrome\\User Data\\Default\\Service Worker", size: 486 * MB, count: 1875, categoryId: "deep-browser" },
+      { id: "db3", name: "Firefox 启动缓存", path: "AppData\\Local\\Mozilla\\Firefox\\Profiles", size: 148 * MB, count: 396, categoryId: "deep-browser" },
+    ],
+  },
+  {
+    id: "deep-update",
+    name: "更新分发缓存",
+    description: "Windows 更新的传递优化缓存，删除后更新需重新下载",
+    icon: "log",
+    risk: "deep",
+    deep: true,
+    totalSize: 3.16 * GB,
+    items: [
+      { id: "du1", name: "传递优化缓存", path: "C:\\Windows\\SoftwareDistribution\\DeliveryOptimization", size: 3.16 * GB, count: 92, categoryId: "deep-update" },
+    ],
+  },
+  {
+    id: "deep-report",
+    name: "应用错误报告",
+    description: "应用与内核的崩溃转储报告，删除后无法用于排障",
+    icon: "log",
+    risk: "deep",
+    deep: true,
+    totalSize: 736 * MB,
+    items: [
+      { id: "dr1", name: "错误报告与转储", path: "C:\\Windows\\LiveKernelReports", size: 736 * MB, count: 28, categoryId: "deep-report" },
     ],
   },
 ];
@@ -104,13 +150,23 @@ export const MOCK_FOLDERS: FolderUsage[] = [
   { path: "C:\\ProgramData", name: "程序数据", size: 18.7 * GB, percent: 11.1 },
 ];
 
+// 安全项无风险须知，前端据此判断是否需要弹确认弹窗
+const SAFE_WARNING = "";
+
 export const MOCK_CDRIVE: CDriveItem[] = [
-  { id: "winupdate", name: "Windows 更新缓存", description: "旧版本更新安装文件与下载缓存", size: 8.42 * GB, detail: "可安全清理，不影响系统运行", selected: true },
-  { id: "hiberfil", name: "休眠文件", description: "hiberfil.sys，关闭休眠后可释放", size: 12.8 * GB, detail: "清理后将禁用休眠功能", selected: false },
-  { id: "restore", name: "系统还原点", description: "保留最近一个还原点，清理其余", size: 5.6 * GB, detail: "建议保留至少一个还原点", selected: false },
-  { id: "defender", name: "Defender 隔离文件", description: "Windows Defender 隔离区中的文件", size: 1.2 * GB, detail: "清理后无法恢复隔离文件", selected: false },
-  { id: "tempwin", name: "C 盘临时文件", description: "系统与应用临时文件", size: 1.84 * GB, detail: "可安全清理", selected: true },
-  { id: "oldwindows", name: "Windows.old", description: "旧系统安装备份", size: 24.6 * GB, detail: "清理后无法回退到旧版本", selected: false },
+  { id: "winupdate", name: "Windows 更新缓存", description: "旧版本更新安装文件与下载缓存", size: 8.42 * GB, detail: "可安全清理，不影响系统运行", selected: true, deep: false, warning: SAFE_WARNING },
+  { id: "hiberfil", name: "休眠文件", description: "hiberfil.sys，关闭休眠后可释放", size: 12.8 * GB, detail: "清理后将禁用休眠功能", selected: false, deep: false, warning: "将关闭系统休眠功能并删除 hiberfil.sys。快速启动可能失效；休眠中的会话无法恢复。个人文档不受影响。" },
+  { id: "restore", name: "系统还原点", description: "保留最近一个还原点，清理其余", size: 5.6 * GB, detail: "建议保留至少一个还原点", selected: false, deep: false, warning: "将删除较早的系统还原点。一旦删除，无法再通过这些还原点回退系统设置与部分程序安装。" },
+  { id: "defender", name: "Defender 隔离文件", description: "Windows Defender 隔离区中的文件", size: 1.2 * GB, detail: "清理后无法恢复隔离文件", selected: false, deep: false, warning: "将永久删除被 Defender 隔离的可疑文件，无法从隔离区恢复。若其中有误判文件也会一并丢失。" },
+  { id: "tempwin", name: "C 盘临时文件", description: "系统与应用临时文件", size: 1.84 * GB, detail: "可安全清理", selected: true, deep: false, warning: SAFE_WARNING },
+  { id: "oldwindows", name: "Windows.old", description: "旧系统安装备份", size: 24.6 * GB, detail: "清理后无法回退到旧版本", selected: false, deep: false, warning: "将永久删除旧版本 Windows 的完整备份，包括旧系统中的用户配置文件。删除后无法回退到升级前的系统。" },
+];
+
+export const MOCK_DEEP_CDRIVE: CDriveItem[] = [
+  { id: "deep-delivery", name: "更新分发缓存", description: "传递优化下载的安装源", size: 3.16 * GB, detail: "删除后更新会重新下载", selected: false, deep: true, warning: "将删除 Windows 更新的 P2P 分发缓存。不会卸载已安装的更新，但在带宽受限时后续更新可能变慢。" },
+  { id: "deep-reports", name: "内核与错误报告", description: "崩溃转储与 WER 报告存档", size: 1.84 * GB, detail: "删除后无法用于故障排查", selected: false, deep: true, warning: "将删除内核崩溃转储与错误报告存档。这不包含个人文件，但一旦删除，过往蓝屏或应用崩溃的诊断记录将无法恢复。" },
+  { id: "deep-logs", name: "安装维护日志", description: "CBS / DISM 组件安装日志", size: 628 * MB, detail: "删除后无法追溯更新失败原因", selected: false, deep: true, warning: "将删除组件安装与维护日志。不影响系统运行，但之后若更新失败，将缺少可用于定位问题的历史记录。" },
+  { id: "deep-setup", name: "系统安装临时文件", description: "Windows 安装过程留下的临时目录", size: 2.08 * GB, detail: "删除后无法回退本次安装过程", selected: false, deep: true, warning: "将删除 C:\\Windows\\Panther 中的安装日志与临时文件。不会影响当前系统，但会丢失本次升级/安装的排查材料。" },
 ];
 
 export const MOCK_STATUS: SystemStatus = {

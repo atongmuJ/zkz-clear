@@ -2,6 +2,7 @@ node_modules/
 dist/
 src-tauri/target/
 张开嘴清理-便携版/
+release/
 .DS_Store
 *.log
 .env

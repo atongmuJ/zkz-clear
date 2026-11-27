@@ -77,6 +77,8 @@ struct CategorySpec {
     description: &'static str,
     icon: &'static str,
     risk: &'static str,
+    /// 仅深度清理模式可用
+    deep: bool,
     targets: Vec<Target>,
 }
 
@@ -191,14 +193,157 @@ fn browser_targets() -> Vec<Target> {
     ]
 }
 
-fn build_specs() -> Vec<CategorySpec> {
+// ───────────────────────── 深度清理目标（仅可再生缓存） ─────────────────────────
+// 安全约束：以下目录全部是浏览器/系统可自动重建的缓存，
+// 绝不触碰 Cookies、密码、历史、书签、Local Storage、IndexedDB、个人文档。
+
+/// Chromium 系「渲染 / 离线缓存」——普通模式只清 Cache，这里补上 Service Worker
+/// 的 CacheStorage 与 GPU 着色器缓存。删除后网站会在下次访问时重新下载，
+/// 已安装的 PWA 需要重新加载一次，但不影响账号与数据。
+fn chromium_deep_cache_dirs(user_data: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let Ok(entries) = std::fs::read_dir(user_data) else {
+        return dirs;
+    };
+    for entry in entries.flatten() {
+        let profile_name = entry.file_name().to_string_lossy().to_string();
+        if profile_name != "Default" && !profile_name.starts_with("Profile ") {
+            continue;
+        }
+        let profile_dir = entry.path();
+        if !profile_dir.is_dir() {
+            continue;
+        }
+        for sub in [
+            "Service Worker\\CacheStorage",
+            "DawnCache",
+            "ShaderCache",
+        ] {
+            let cache_dir = profile_dir.join(sub);
+            if cache_dir.is_dir() {
+                dirs.push(cache_dir);
+            }
+        }
+    }
+    dirs
+}
+
+/// Firefox 的深度缓存：启动缓存与页面缩略图，均可自动重建。
+fn firefox_deep_cache_dirs() -> Vec<PathBuf> {
+    let base = expand_env("%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles");
+    let mut dirs = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&base) else {
+        return dirs;
+    };
+    for entry in entries.flatten() {
+        for sub in ["startupCache", "thumbnails"] {
+            let dir = entry.path().join(sub);
+            if dir.is_dir() {
+                dirs.push(dir);
+            }
+        }
+    }
+    dirs
+}
+
+/// Windows 传递优化缓存：P2P 分发更新时留下的安装源，删除后系统会按需重新下载。
+fn delivery_optimization_dirs() -> Vec<PathBuf> {
+    let candidates = [
+        PathBuf::from("C:\\Windows\\SoftwareDistribution\\DeliveryOptimization"),
+        PathBuf::from(
+            "C:\\Windows\\ServiceProfiles\\NetworkService\\AppData\\Local\\Microsoft\\Windows\\DeliveryOptimization",
+        ),
+        PathBuf::from(
+            "C:\\Windows\\ServiceProfiles\\LocalService\\AppData\\Local\\Microsoft\\Windows\\DeliveryOptimization",
+        ),
+    ];
+    candidates
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .collect()
+}
+
+/// 应用级错误报告与内核转储：与日志分类互不重叠（日志分类只清 WER 的两个子目录）。
+fn deep_report_dirs() -> Vec<PathBuf> {
+    let candidates = [
+        expand_env("%LOCALAPPDATA%\\Microsoft\\Windows\\WER"),
+        PathBuf::from("C:\\ProgramData\\Microsoft\\Windows\\WER\\ReportStore"),
+        PathBuf::from("C:\\Windows\\LiveKernelReports"),
+    ];
+    candidates
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .collect()
+}
+
+/// 深度模式下追加的分类：全部是可再生内容，风险在前端确认弹窗中逐条说明。
+fn build_deep_specs() -> Vec<CategorySpec> {
     vec![
+        CategorySpec {
+            id: "deep-browser",
+            name: "浏览器深度缓存",
+            description: "Service Worker 与着色器缓存，下次上网会重新生成",
+            icon: "browser",
+            risk: "deep",
+            deep: true,
+            targets: vec![
+                Target::new(
+                    "Edge 渲染缓存",
+                    ClearMode::Contents,
+                    chromium_deep_cache_dirs(&expand_env(
+                        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data",
+                    )),
+                ),
+                Target::new(
+                    "Chrome 渲染缓存",
+                    ClearMode::Contents,
+                    chromium_deep_cache_dirs(&expand_env("%LOCALAPPDATA%\\Google\\Chrome\\User Data")),
+                ),
+                Target::new(
+                    "Firefox 启动缓存",
+                    ClearMode::Contents,
+                    firefox_deep_cache_dirs(),
+                ),
+            ],
+        },
+        CategorySpec {
+            id: "deep-update",
+            name: "更新分发缓存",
+            description: "Windows 更新的传递优化缓存，删除后更新需重新下载",
+            icon: "log",
+            risk: "deep",
+            deep: true,
+            targets: vec![Target::new(
+                "传递优化缓存",
+                ClearMode::Contents,
+                delivery_optimization_dirs(),
+            )],
+        },
+        CategorySpec {
+            id: "deep-report",
+            name: "应用错误报告",
+            description: "应用与内核的崩溃转储报告，删除后无法再用于排障",
+            icon: "log",
+            risk: "deep",
+            deep: true,
+            targets: vec![Target::new(
+                "错误报告与转储",
+                ClearMode::Contents,
+                deep_report_dirs(),
+            )],
+        },
+    ]
+}
+
+fn build_specs(deep: bool) -> Vec<CategorySpec> {
+    let mut specs = vec![
         CategorySpec {
             id: "temp",
             name: "系统临时文件",
             description: "Windows 与应用程序产生的临时文件",
             icon: "temp",
             risk: "safe",
+            deep: false,
             targets: vec![Target::new(
                 "临时文件目录",
                 ClearMode::Contents,
@@ -214,6 +359,7 @@ fn build_specs() -> Vec<CategorySpec> {
             description: "Edge / Chrome / Firefox 的网页缓存",
             icon: "browser",
             risk: "safe",
+            deep: false,
             targets: browser_targets(),
         },
         CategorySpec {
@@ -222,6 +368,7 @@ fn build_specs() -> Vec<CategorySpec> {
             description: "已删除但仍占用磁盘空间的文件",
             icon: "trash",
             risk: "safe",
+            deep: false,
             targets: vec![Target::new(
                 "回收站内容",
                 ClearMode::Contents,
@@ -234,6 +381,7 @@ fn build_specs() -> Vec<CategorySpec> {
             description: "系统日志、崩溃报告与预取记录",
             icon: "log",
             risk: "notice",
+            deep: false,
             targets: vec![
                 Target::new(
                     "系统日志",
@@ -262,13 +410,20 @@ fn build_specs() -> Vec<CategorySpec> {
             description: "文件资源管理器的图片预览缓存",
             icon: "image",
             risk: "safe",
+            deep: false,
             targets: vec![Target::new(
                 "缩略图数据库",
                 ClearMode::Files,
                 thumbnail_cache_files(),
             )],
         },
-    ]
+    ];
+
+    // 深度分类只在开关打开时追加，普通模式从源头就不会出现这些 id
+    if deep {
+        specs.extend(build_deep_specs());
+    }
+    specs
 }
 
 fn emit(channel: &Channel<ScanProgress>, phase: String, progress: u8, found: u64, size: u64) {
@@ -280,8 +435,8 @@ fn emit(channel: &Channel<ScanProgress>, phase: String, progress: u8, found: u64
     });
 }
 
-fn scan_blocking(channel: Channel<ScanProgress>) -> Vec<CleanCategory> {
-    let specs = build_specs();
+fn scan_blocking(channel: Channel<ScanProgress>, deep: bool) -> Vec<CleanCategory> {
+    let specs = build_specs(deep);
     let total = specs.len().max(1) as f32;
     let mut categories = Vec::with_capacity(specs.len());
     let mut found_total = 0u64;
@@ -322,6 +477,7 @@ fn scan_blocking(channel: Channel<ScanProgress>) -> Vec<CleanCategory> {
             items,
             total_size: category_total,
             risk: spec.risk.to_string(),
+            deep: spec.deep,
         });
 
         emit(
@@ -339,19 +495,27 @@ fn scan_blocking(channel: Channel<ScanProgress>) -> Vec<CleanCategory> {
 
 /// 扫描在阻塞线程池中执行，避免目录遍历阻塞界面线程导致窗口卡死
 #[tauri::command]
-pub async fn scan_junk(channel: Channel<ScanProgress>) -> Result<Vec<CleanCategory>, String> {
-    tauri::async_runtime::spawn_blocking(move || scan_blocking(channel))
+pub async fn scan_junk(
+    channel: Channel<ScanProgress>,
+    deep: bool,
+) -> Result<Vec<CleanCategory>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_blocking(channel, deep))
         .await
         .map_err(|e| format!("扫描任务异常中断：{}", e))
 }
 
+/// 清理普通垃圾；`deep=true` 时才允许清理深度分类，防止绕过前端确认直接调用命令。
 #[tauri::command]
-pub async fn clean_junk(category_ids: Vec<String>) -> Result<u64, String> {
+pub async fn clean_junk(category_ids: Vec<String>, deep: bool) -> Result<u64, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let specs = build_specs();
+        let specs = build_specs(deep);
         let mut freed = 0u64;
         for spec in &specs {
             if !category_ids.iter().any(|id| id == spec.id) {
+                continue;
+            }
+            // 安全护栏：任何深度分类都必须 deep=true 才执行
+            if spec.deep && !deep {
                 continue;
             }
             for target in &spec.targets {
@@ -366,7 +530,9 @@ pub async fn clean_junk(category_ids: Vec<String>) -> Result<u64, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{chromium_cache_dirs, dedup_paths, Target, ClearMode};
+    use super::{
+        build_specs, chromium_cache_dirs, dedup_paths, Target, ClearMode,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -423,5 +589,39 @@ mod tests {
             PathBuf::from("D:\\Temp"),
         ];
         assert_eq!(dedup_paths(paths).len(), 2);
+    }
+
+    #[test]
+    fn deep_categories_are_absent_in_normal_mode() {
+        let normal = build_specs(false);
+        assert!(normal.iter().all(|s| !s.deep));
+        assert!(normal.iter().all(|s| !s.id.starts_with("deep-")));
+
+        let deep = build_specs(true);
+        assert!(deep.iter().any(|s| s.deep && s.id == "deep-browser"));
+        assert!(deep.iter().any(|s| s.deep && s.id == "deep-update"));
+        assert!(deep.iter().any(|s| s.deep && s.id == "deep-report"));
+        assert!(deep.len() > normal.len());
+    }
+
+    #[test]
+    fn deep_targets_never_contain_user_data_or_system_critical_paths() {
+        let forbidden = [
+            "cookies", "login data", "history", "bookmarks",
+            "local storage", "indexeddb", "system32", "winsxs",
+        ];
+        let deep = build_specs(true);
+        for spec in deep.iter().filter(|s| s.deep) {
+            for target in &spec.targets {
+                for path in &target.paths {
+                    let lower = path.to_string_lossy().to_lowercase();
+                    assert!(
+                        !forbidden.iter().any(|part| lower.contains(part)),
+                        "深度清理目标命中禁止路径：{}",
+                        lower
+                    );
+                }
+            }
+        }
     }
 }

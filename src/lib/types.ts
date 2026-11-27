@@ -1,4 +1,4 @@
-export type TabKey = "clean" | "optimize" | "analyze" | "cdrive" | "status";
+export type TabKey = "clean" | "optimize" | "analyze" | "cdrive" | "status" | "about";
 
 export interface CleanItem {
   id: string;
@@ -16,7 +16,9 @@ export interface CleanCategory {
   icon: string;
   items: CleanItem[];
   totalSize: number;
-  risk: "safe" | "notice";
+  risk: "safe" | "notice" | "deep";
+  /** 深度清理模式专属分类 */
+  deep: boolean;
 }
 
 export interface ScanProgress {
@@ -62,6 +64,16 @@ export interface CDriveItem {
   size: number;
   detail: string;
   selected: boolean;
+  /** 深度清理项 */
+  deep: boolean;
+  /** 该删除项的风险须知 */
+  warning: string;
+}
+
+/** 深度清理风险须知条目 */
+export interface DeepWarning {
+  name: string;
+  warning: string;
 }
 
 export interface SystemStatus {

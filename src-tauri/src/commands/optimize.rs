@@ -17,8 +17,9 @@ const BACKUP_KEY: &str = r"HKCU:\Software\Microsoft\Windows\CurrentVersion\RunZk
 const HKCU_INDEX: usize = 0;
 const HKLM_INDEX: usize = 1;
 
-/// 注册表值。备份项在 `kind` 中额外记录来源分支（`ExpandString|HKLM`），
-/// 恢复时才能写回原来的位置与类型。
+/// 注册表值。备份项在 `value` 前缀中记录来源分支（`HKCU|...` / `HKLM|...`），
+/// 恢复时才能写回原来的位置；注册表类型字段只能是合法的 RegistryValueKind，
+/// 不能像旧版那样把 `HKLM` 塞进 `kind`（那会直接导致写入失败）。
 #[derive(Debug, Deserialize)]
 struct RegValue {
     name: String,
@@ -77,23 +78,43 @@ fn value_kind(value: &str, original: &str) -> &'static str {
     }
 }
 
-fn encode_backup_kind(kind: &str, hive: &str) -> String {
-    format!("{}|{}", kind, hive)
+/// 把来源分支编码进备份项的 value 前缀。类型字段保持纯 RegistryValueKind。
+fn encode_backup_value(hive: &str, value: &str) -> String {
+    format!("{}|{}", hive, value)
 }
 
-fn decode_backup_kind(encoded: &str) -> (&str, &str) {
-    match encoded.split_once('|') {
-        Some((kind, hive)) => (kind, hive),
-        None => (encoded, "HKCU"),
+/// 返回 (hive, 原始值)。兼容旧备份（hive 存在 kind 里的格式）。
+fn decode_backup_value(encoded: &str) -> (&str, &str) {
+    if let Some((hive, value)) = encoded.split_once('|') {
+        if hive.eq_ignore_ascii_case("HKCU") || hive.eq_ignore_ascii_case("HKLM") {
+            return (hive, value);
+        }
     }
+    ("HKCU", encoded)
 }
 
-/// 通过环境变量传值，名称或命令里出现引号、`&`、`$` 也不会被 PowerShell 解释
+/// 通过环境变量传值，名称或命令里出现引号、`&`、`$` 也不会被 PowerShell 解释。
+/// 使用 .NET Registry API 并显式把类型字符串解析成 RegistryValueKind 枚举：
+/// Windows PowerShell 5.1 的 `Set-ItemProperty -Type $字符串变量` 无法完成
+/// String→枚举的运行时绑定，会报「无法绑定参数 Type」，必须显式 Parse。
 fn set_value(key: &str, name: &str, value: &str, kind: &str) -> Result<(), String> {
     let script = r#"
 try {
-  if (-not (Test-Path $env:ZKQ_KEY)) { New-Item -Path $env:ZKQ_KEY -Force | Out-Null }
-  Set-ItemProperty -Path $env:ZKQ_KEY -Name $env:ZKQ_NAME -Value $env:ZKQ_VALUE -Type $env:ZKQ_TYPE -ErrorAction Stop
+  $kind = [Microsoft.Win32.RegistryValueKind][Enum]::Parse([Microsoft.Win32.RegistryValueKind], $env:ZKQ_TYPE, $true)
+  $keyPath = $env:ZKQ_KEY
+  if ($keyPath -match '^HKCU:\\(.*)$') {
+    $root = [Microsoft.Win32.Registry]::CurrentUser
+    $sub  = $Matches[1]
+  } elseif ($keyPath -match '^HKLM:\\(.*)$') {
+    $root = [Microsoft.Win32.Registry]::LocalMachine
+    $sub  = $Matches[1]
+  } else {
+    throw "不支持的注册表位置：$keyPath"
+  }
+  $regKey = $root.CreateSubKey($sub, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree)
+  if ($null -eq $regKey) { throw "无法打开注册表项：$keyPath" }
+  try { $regKey.SetValue($env:ZKQ_NAME, $env:ZKQ_VALUE, $kind) }
+  finally { $regKey.Close() }
 } catch {
   Write-Output "写入注册表失败：$($_.Exception.Message)"
   exit 1
@@ -178,12 +199,13 @@ fn get_startup_items_blocking() -> Vec<StartupItem> {
 
     for value in snapshot.backup.iter() {
         if !items.iter().any(|item| item.name == value.name) {
+            let (_, original) = decode_backup_value(&value.value);
             items.push(StartupItem {
                 name: value.name.clone(),
-                command: value.value.clone(),
+                command: original.to_string(),
                 location: "注册表 Run (已禁用)".to_string(),
                 enabled: false,
-                publisher: guess_publisher(&value.value),
+                publisher: guess_publisher(original),
             });
         }
     }
@@ -230,8 +252,8 @@ fn set_startup_enabled_blocking(name: &str, enabled: bool) -> Result<bool, Strin
                 set_value(
                     BACKUP_KEY,
                     name,
-                    &current.value,
-                    &encode_backup_kind(kind, hive),
+                    &encode_backup_value(hive, &current.value),
+                    kind,
                 )?;
                 delete_value(RUN_KEYS[idx].0, name)?;
                 return Ok(true);
@@ -240,13 +262,30 @@ fn set_startup_enabled_blocking(name: &str, enabled: bool) -> Result<bool, Strin
     } else {
         // 2. 从备份恢复
         if let Some(backup) = snapshot.backup.iter().find(|v| v.name == name) {
-            let (kind, hive) = decode_backup_kind(&backup.kind);
+            let (hive, original) = decode_backup_value(&backup.value);
             let key = if hive.eq_ignore_ascii_case("HKLM") {
                 RUN_KEYS[HKLM_INDEX].0
             } else {
                 RUN_KEYS[HKCU_INDEX].0
             };
-            set_value(key, name, &backup.value, kind)?;
+            // 兼容旧备份：hive 曾写在 kind 里（格式 `String|HKLM`），
+            // 那时 value 是纯命令，需从 kind 尾部补出目标分支。
+            let (effective_hive, effective_value) =
+                if let Some((_, old_hive)) = backup.kind.split_once('|') {
+                    let target = if old_hive.eq_ignore_ascii_case("HKLM") {
+                        RUN_KEYS[HKLM_INDEX].0
+                    } else {
+                        RUN_KEYS[HKCU_INDEX].0
+                    };
+                    (target, backup.value.as_str())
+                } else {
+                    (key, original)
+                };
+            let kind = value_kind(
+                effective_value,
+                backup.kind.split_once('|').map(|(k, _)| k).unwrap_or(&backup.kind),
+            );
+            set_value(effective_hive, name, effective_value, kind)?;
             delete_value(BACKUP_KEY, name)?;
             return Ok(true);
         }
@@ -295,7 +334,7 @@ pub async fn set_startup_enabled(name: String, enabled: bool) -> Result<bool, St
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_backup_kind, encode_backup_kind, value_kind};
+    use super::{decode_backup_value, encode_backup_value, value_kind};
 
     #[test]
     fn expand_string_is_preserved_for_percent_paths() {
@@ -308,15 +347,20 @@ mod tests {
     }
 
     #[test]
-    fn backup_kind_round_trips_hive_and_type() {
-        let encoded = encode_backup_kind("ExpandString", "HKLM");
-        let (kind, hive) = decode_backup_kind(&encoded);
-        assert_eq!(kind, "ExpandString");
+    fn backup_value_round_trips_hive_and_command() {
+        let encoded = encode_backup_value("HKLM", "C:\\App\\run.exe --flag");
+        let (hive, value) = decode_backup_value(&encoded);
         assert_eq!(hive, "HKLM");
+        assert_eq!(value, "C:\\App\\run.exe --flag");
     }
 
     #[test]
     fn legacy_backup_without_hive_defaults_to_current_user() {
-        assert_eq!(decode_backup_kind("String"), ("String", "HKCU"));
+        assert_eq!(decode_backup_value("C:\\App\\run.exe"), ("HKCU", "C:\\App\\run.exe"));
+    }
+
+    #[test]
+    fn value_containing_pipe_is_not_mistaken_for_hive_prefix() {
+        assert_eq!(decode_backup_value("C:\\a|b.exe"), ("HKCU", "C:\\a|b.exe"));
     }
 }

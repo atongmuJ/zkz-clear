@@ -4,10 +4,11 @@ import { CleanPulse } from "../components/CleanPulse";
 import { Earth } from "../components/Earth";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Icon, type IconName } from "../components/Icon";
+import { RiskConfirmDialog } from "../components/RiskConfirmDialog";
 import { cleanJunk, scanJunk } from "../lib/api";
 import { errorMessage, formatBytes } from "../lib/format";
 import { useCountUp } from "../lib/useCountUp";
-import type { CleanCategory, ScanProgress } from "../lib/types";
+import type { CleanCategory, DeepWarning, ScanProgress } from "../lib/types";
 
 type Phase = "idle" | "scanning" | "result" | "cleaning" | "done";
 
@@ -28,35 +29,61 @@ export function CleanView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [freed, setFreed] = useState(0);
   const [error, setError] = useState("");
+  // 深度模式默认关闭：普通清理保持原有安全范围
+  const [deepMode, setDeepMode] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleScan = useCallback(async () => {
     setPhase("scanning");
     setError("");
     setProgress(EMPTY_PROGRESS);
     try {
-      const result = await scanJunk(setProgress);
+      const result = await scanJunk(setProgress, deepMode);
       setCategories(result);
-      setSelected(new Set(result.map((c) => c.id)));
+      // 深度分类默认不勾选，避免用户误点一键清理时删除深度数据
+      setSelected(new Set(result.filter((c) => !c.deep).map((c) => c.id)));
       setPhase("result");
     } catch (err) {
       setError(errorMessage(err, "扫描失败，请重试"));
       setPhase("idle");
     }
-  }, []);
+  }, [deepMode]);
 
-  const handleClean = useCallback(async () => {
-    if (selected.size === 0) return;
+  /** 真正执行清理 */
+  const runClean = useCallback(async () => {
+    setConfirmOpen(false);
     setPhase("cleaning");
     setError("");
     try {
-      const bytes = await cleanJunk(Array.from(selected));
+      const bytes = await cleanJunk(Array.from(selected), deepMode);
       setFreed(bytes);
       setPhase("done");
     } catch (err) {
       setError(errorMessage(err, "清理失败，请重试"));
       setPhase("result");
     }
-  }, [selected]);
+  }, [selected, deepMode]);
+
+  const handleClean = useCallback(() => {
+    if (selected.size === 0) return;
+    // 只有选中了深度分类才需要风险确认
+    const deepSelected = categories.filter((c) => c.deep && selected.has(c.id));
+    if (deepMode && deepSelected.length > 0) {
+      setConfirmOpen(true);
+      return;
+    }
+    void runClean();
+  }, [categories, selected, deepMode, runClean]);
+
+  const deepWarnings: DeepWarning[] = categories
+    .filter((c) => c.deep && selected.has(c.id))
+    .map((c) => ({
+      name: c.name,
+      warning: `${c.description}。该项仅可通过深度清理模式删除，删除后无法恢复，但不包含个人文档或系统关键文件。`,
+    }));
+  const deepSelectedSize = categories
+    .filter((c) => c.deep && selected.has(c.id))
+    .reduce((sum, c) => sum + c.totalSize, 0);
 
   const toggleCategory = (id: string) => {
     setSelected((prev) => {
@@ -104,9 +131,28 @@ export function CleanView() {
                 <p className="hero-verse">山雨涤尘垢，潮退万象新</p>
                 <button type="button" className="primary-btn scan-btn" onClick={handleScan}>
                   <Icon name="scan" size={17} />
-                  扫描电脑
+                  {deepMode ? "深度扫描电脑" : "扫描电脑"}
                 </button>
-                <p className="hero-hint">扫描临时文件、缓存与回收站 · 拖动地球可以旋转</p>
+                <label className={`mode-switch ${deepMode ? "on" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={deepMode}
+                    onChange={(e) => {
+                      setDeepMode(e.target.checked);
+                      setCategories([]);
+                      setSelected(new Set());
+                    }}
+                  />
+                  <span className="mode-switch-track"><span className="mode-switch-knob" /></span>
+                  <Icon name="warning" size={14} />
+                  <span>深度清理模式</span>
+                  <em>{deepMode ? "已开启 · 含深度缓存" : "更安全，仅清理常规垃圾"}</em>
+                </label>
+                <p className="hero-hint">
+                  {deepMode
+                    ? "将额外扫描浏览器深度缓存、更新分发缓存与错误报告，清理前需确认风险"
+                    : "扫描临时文件、缓存与回收站 · 拖动地球可以旋转"}
+                </p>
               </motion.div>
             ) : (
               <motion.div
@@ -185,11 +231,14 @@ export function CleanView() {
                     <span className={`checkbox ${isSelected ? "checked" : ""}`}>
                       {isSelected && <Icon name="check" size={13} />}
                     </span>
-                    <span className={`category-icon ${category.risk === "notice" ? "notice" : ""}`}>
-                      <Icon name={CATEGORY_ICONS[category.icon] ?? "broom"} size={20} />
+                    <span className={`category-icon ${category.deep ? "deep" : category.risk === "notice" ? "notice" : ""}`}>
+                      <Icon name={category.deep ? "warning" : CATEGORY_ICONS[category.icon] ?? "broom"} size={20} />
                     </span>
                     <span className="category-info">
-                      <span className="category-name">{category.name}</span>
+                      <span className="category-name">
+                        {category.name}
+                        {category.deep && <span className="deep-tag">深度</span>}
+                      </span>
                       <span className="category-desc">
                         {category.description} · {category.items.length} 个子项
                       </span>
@@ -233,9 +282,17 @@ export function CleanView() {
         )}
 
         {phase === "done" && (
-          <DoneState key="done" freed={freed} onRescan={handleScan} />
+          <DoneState key="done" freed={freed} deep={deepMode} onRescan={handleScan} />
         )}
       </AnimatePresence>
+
+      <RiskConfirmDialog
+        open={confirmOpen}
+        warnings={deepWarnings}
+        size={deepSelectedSize}
+        onConfirm={runClean}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }
@@ -247,7 +304,7 @@ function TotalBytes({ value }: { value: number }) {
 }
 
 /** 完成态：释放体积从 0 滚到实际值，配一次光晕扩散 */
-function DoneState({ freed, onRescan }: { freed: number; onRescan: () => void }) {
+function DoneState({ freed, deep, onRescan }: { freed: number; deep: boolean; onRescan: () => void }) {
   const shown = useCountUp(freed);
 
   return (
@@ -284,7 +341,9 @@ function DoneState({ freed, onRescan }: { freed: number; onRescan: () => void })
       <p className="freed-text">
         已释放 <strong>{formatBytes(shown)}</strong> 空间
       </p>
-      <p className="done-sub">你的电脑又轻了一点</p>
+      <p className="done-sub">
+        {deep ? "深度清理已完成，缓存会在下次使用时自动重建" : "你的电脑又轻了一点"}
+      </p>
       <button type="button" className="primary-btn" onClick={onRescan}>
         <Icon name="refresh" size={16} />
         再次扫描

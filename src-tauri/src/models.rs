@@ -21,6 +21,8 @@ pub struct CleanCategory {
     pub items: Vec<CleanItem>,
     pub total_size: u64,
     pub risk: String,
+    /// 仅在深度清理模式下出现的分类，需要用户确认风险后才能清理
+    pub deep: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -78,6 +80,10 @@ pub struct CDriveItem {
     pub size: u64,
     pub detail: String,
     pub selected: bool,
+    /// 深度清理项：需用户确认风险后方可执行
+    pub deep: bool,
+    /// 该项删除后可能受影响的数据或配置，用于确认弹窗逐条展示
+    pub warning: String,
 }
 
 /// 清理结果。`skipped` 记录未释放任何空间的项目，

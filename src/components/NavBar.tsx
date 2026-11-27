@@ -8,6 +8,7 @@ const TABS: { key: TabKey; label: string; icon: IconName }[] = [
   { key: "analyze", label: "分析", icon: "chart" },
   { key: "cdrive", label: "C盘", icon: "drive" },
   { key: "status", label: "状态", icon: "pulse" },
+  { key: "about", label: "关于", icon: "info" },
 ];
 
 interface NavBarProps {

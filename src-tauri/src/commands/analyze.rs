@@ -102,7 +102,18 @@ fn large_files_in(root: &Path, threshold: u64) -> Vec<LargeFile> {
         .max_depth(5)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|e| e.depth() == 0 || !crate::platform::is_reparse_point(e.path()))
+        // 与 dir_size 一致：只检查目录是否是 junction，避免对每个文件做 stat
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            let kind = e.file_type();
+            if kind.is_dir() {
+                !crate::platform::is_reparse_point(e.path())
+            } else {
+                true
+            }
+        })
         .filter_map(|e| e.ok())
     {
         if !entry.file_type().is_file() {

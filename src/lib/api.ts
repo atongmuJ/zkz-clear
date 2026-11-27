@@ -20,7 +20,8 @@ export const isDesktop = (): boolean => DESKTOP;
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export async function scanJunk(
-  onProgress: (p: ScanProgress) => void
+  onProgress: (p: ScanProgress) => void,
+  deep = false
 ): Promise<CleanCategory[]> {
   if (!isDesktop()) {
     const phases = [
@@ -29,6 +30,9 @@ export async function scanJunk(
       "正在扫描回收站…",
       "正在扫描日志与转储…",
       "正在扫描缩略图缓存…",
+      ...(deep
+        ? ["正在扫描浏览器深度缓存…", "正在扫描更新分发缓存…", "正在扫描错误报告…"]
+        : []),
       "正在汇总扫描结果…",
     ];
     for (let i = 0; i <= 100; i += 2) {
@@ -42,22 +46,22 @@ export async function scanJunk(
       });
       await delay(24);
     }
-    return mock.MOCK_CATEGORIES;
+    return deep ? [...mock.MOCK_CATEGORIES, ...mock.MOCK_DEEP_CATEGORIES] : mock.MOCK_CATEGORIES;
   }
 
   const channel = new Channel<ScanProgress>();
   channel.onmessage = (msg) => onProgress(msg);
-  return invoke<CleanCategory[]>("scan_junk", { channel });
+  return invoke<CleanCategory[]>("scan_junk", { channel, deep });
 }
 
-export async function cleanJunk(categoryIds: string[]): Promise<number> {
+export async function cleanJunk(categoryIds: string[], deep = false): Promise<number> {
   if (!isDesktop()) {
     await delay(700);
-    return mock.MOCK_CATEGORIES
+    return [...mock.MOCK_CATEGORIES, ...mock.MOCK_DEEP_CATEGORIES]
       .filter((c) => categoryIds.includes(c.id))
       .reduce((sum, c) => sum + c.totalSize, 0);
   }
-  return invoke<number>("clean_junk", { categoryIds });
+  return invoke<number>("clean_junk", { categoryIds, deep });
 }
 
 export async function getStartupItems(): Promise<StartupItem[]> {
@@ -88,20 +92,20 @@ export async function getFolderUsage(): Promise<FolderUsage[]> {
   return invoke<FolderUsage[]>("get_folder_usage");
 }
 
-export async function getCDriveItems(): Promise<CDriveItem[]> {
-  if (!isDesktop()) return mock.MOCK_CDRIVE;
-  return invoke<CDriveItem[]>("get_cdrive_items");
+export async function getCDriveItems(deep = false): Promise<CDriveItem[]> {
+  if (!isDesktop()) return deep ? [...mock.MOCK_CDRIVE, ...mock.MOCK_DEEP_CDRIVE] : mock.MOCK_CDRIVE;
+  return invoke<CDriveItem[]>("get_cdrive_items", { deep });
 }
 
-export async function cleanCDrive(itemIds: string[]): Promise<CleanOutcome> {
+export async function cleanCDrive(itemIds: string[], deep = false): Promise<CleanOutcome> {
   if (!isDesktop()) {
     await delay(900);
-    const freed = mock.MOCK_CDRIVE
+    const freed = [...mock.MOCK_CDRIVE, ...mock.MOCK_DEEP_CDRIVE]
       .filter((i) => itemIds.includes(i.id))
       .reduce((sum, i) => sum + i.size, 0);
     return { freed, skipped: [] };
   }
-  return invoke<CleanOutcome>("clean_cdrive", { itemIds });
+  return invoke<CleanOutcome>("clean_cdrive", { itemIds, deep });
 }
 
 export async function getSystemStatus(): Promise<SystemStatus> {

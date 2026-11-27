@@ -2,10 +2,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Icon } from "../components/Icon";
+import { RiskConfirmDialog } from "../components/RiskConfirmDialog";
 import { cleanCDrive, getCDriveItems, getDisks } from "../lib/api";
 import { errorMessage, formatBytes } from "../lib/format";
 import { useCountUp } from "../lib/useCountUp";
-import type { CDriveItem, DiskInfo } from "../lib/types";
+import type { CDriveItem, DeepWarning, DiskInfo } from "../lib/types";
 
 type Phase = "idle" | "cleaning" | "done";
 
@@ -18,20 +19,23 @@ export function CDriveView() {
   const [skipped, setSkipped] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deepMode, setDeepMode] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
-    Promise.all([getCDriveItems(), getDisks()])
+    Promise.all([getCDriveItems(deepMode), getDisks()])
       .then(([list, disks]) => {
         if (!active) return;
         setItems(list);
         setDisk(disks.find((d) => d.name === "C:") ?? disks[0]);
-        setSelected(new Set(list.filter((i) => i.selected).map((i) => i.id)));
+        // 深度项默认不勾选，防止误删
+        setSelected(new Set(list.filter((i) => i.selected && !i.deep).map((i) => i.id)));
       })
       .catch((err) => { if (active) setError(errorMessage(err, "读取 C 盘信息失败")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [deepMode]);
 
   const toggle = (id: string) => {
     setPhase("idle");
@@ -43,13 +47,13 @@ export function CDriveView() {
     });
   };
 
-  const handleClean = async () => {
-    if (selected.size === 0) return;
+  const runClean = async () => {
+    setConfirmOpen(false);
     const ids = Array.from(selected);
     setPhase("cleaning");
     setError("");
     try {
-      const outcome = await cleanCDrive(ids);
+      const outcome = await cleanCDrive(ids, deepMode);
       setFreed(outcome.freed);
       setSkipped(outcome.skipped.length);
       setPhase("done");
@@ -70,10 +74,28 @@ export function CDriveView() {
       setItems((prev) => prev.filter((i) => !cleaned.has(i.id)));
       setSelected(new Set(ids.filter((id) => outcome.skipped.includes(id))));
     } catch (err) {
-      setError(errorMessage(err, "清理失败"));
+      setError(errorMessage(err, "清理失败，请检查权限后重试"));
       setPhase("idle");
     }
   };
+
+  // warning 非空 = 该项有明确的数据/配置影响，执行前必须确认
+  const riskySelected = items.filter((i) => selected.has(i.id) && i.warning.trim().length > 0);
+
+  const handleClean = () => {
+    if (selected.size === 0 || phase === "cleaning") return;
+    if (riskySelected.length > 0) {
+      setConfirmOpen(true);
+      return;
+    }
+    void runClean();
+  };
+
+  const deepWarnings: DeepWarning[] = riskySelected.map((i) => ({
+    name: i.name,
+    warning: i.warning,
+  }));
+  const deepSelectedSize = riskySelected.reduce((sum, i) => sum + i.size, 0);
 
   const selectedSize = items
     .filter((i) => selected.has(i.id))
@@ -107,6 +129,25 @@ export function CDriveView() {
       </header>
 
       <ErrorBanner message={error} onClose={() => setError("")} />
+
+      <label className={`cdrive-mode-switch ${deepMode ? "on" : ""}`}>
+        <input
+          type="checkbox"
+          checked={deepMode}
+          onChange={(e) => {
+            setDeepMode(e.target.checked);
+            setPhase("idle");
+          }}
+        />
+        <span className="mode-switch-track"><span className="mode-switch-knob" /></span>
+        <Icon name="warning" size={15} />
+        <span className="cdrive-mode-title">深度清理模式</span>
+        <span className="cdrive-mode-desc">
+          {deepMode
+            ? "已加入更新分发缓存、错误报告、安装日志等深度项，删除前将逐项确认"
+            : "仅清理更新缓存与临时文件；开启后可释放更多空间，但需确认风险"}
+        </span>
+      </label>
 
       <section className="cdrive-overview">
         <div className="cdrive-gauge">
@@ -148,7 +189,7 @@ export function CDriveView() {
           <AnimatePresence>
             {items.map((item, idx) => {
               const isSelected = selected.has(item.id);
-              const isRisky = item.detail.includes("无法") || item.detail.includes("禁用");
+              const isRisky = item.warning.trim().length > 0;
               return (
                 <motion.button
                   type="button" key={item.id}
@@ -168,7 +209,10 @@ export function CDriveView() {
                     {isSelected && <Icon name="check" size={13} />}
                   </span>
                   <span className="cdrive-info">
-                    <span className="cdrive-name">{item.name}</span>
+                    <span className="cdrive-name">
+                      {item.name}
+                      {item.deep && <span className="deep-tag">深度</span>}
+                    </span>
                     <span className="cdrive-desc">{item.description}</span>
                     <span className={`cdrive-detail ${isRisky ? "risky" : ""}`}>
                       <Icon name={isRisky ? "warning" : "info"} size={12} />
@@ -218,6 +262,15 @@ export function CDriveView() {
           )}
         </button>
       </footer>
+
+      <RiskConfirmDialog
+        open={confirmOpen}
+        title="清除风险须知"
+        warnings={deepWarnings}
+        size={deepSelectedSize}
+        onConfirm={runClean}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }
