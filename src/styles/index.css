@@ -1046,6 +1046,43 @@ button:disabled { cursor: not-allowed; }
 .primary-btn.danger:hover:not(:disabled) { background: #f0957d; }
 .primary-btn.danger:disabled { background: rgba(232, 131, 107, 0.35); color: rgba(255, 255, 255, 0.6); }
 
+.hero-last-cleanup {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin: 12px 0 0; font-size: 11px; color: var(--text-faint);
+}
+.hero-last-cleanup svg { color: var(--accent); }
+
+.admin-tag {
+  display: inline-flex; align-items: center;
+  font-size: 10px; font-weight: 500; line-height: 1;
+  padding: 2px 6px; margin-left: 6px; border-radius: 5px;
+  color: #d7ad7a; background: rgba(215, 173, 122, 0.12);
+  border: 1px solid rgba(215, 173, 122, 0.22);
+  vertical-align: middle;
+}
+
+/* ---------- Clean done detail ---------- */
+.done-with-detail { max-width: 460px; }
+.done-details { width: 100%; margin: 4px 0 4px; }
+.done-details-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: none; background: transparent; cursor: pointer;
+  font-size: 12px; color: var(--accent); padding: 4px 0;
+}
+.done-details-toggle:hover { color: var(--text); }
+.done-detail-list { overflow: hidden; width: 100%; }
+.done-detail-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 12px; margin-top: 6px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface);
+}
+.done-detail-name {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-dim); text-align: left;
+}
+.done-detail-size { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; }
+
 /* ---------- About ---------- */
 .about-view { max-width: 820px; }
 .about-hero {

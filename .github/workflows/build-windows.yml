@@ -115,6 +115,15 @@ jobs:
           Copy-Item $exe "out/ZhangZuiCleaner-Portable-$env:APP_VERSION-x64.exe"
           Copy-Item $setup.FullName "out/ZhangZuiCleaner-Setup-$env:APP_VERSION-x64.exe"
 
+          # 绿色版 zip：解压即用，内含重命名后的 exe 与专用说明
+          $greenDir = Join-Path $env:RUNNER_TEMP "green"
+          New-Item -ItemType Directory -Force -Path $greenDir | Out-Null
+          Copy-Item $exe (Join-Path $greenDir "张开嘴清理.exe")
+          Copy-Item "portable/GREEN-README.txt" (Join-Path $greenDir "使用说明.txt")
+          $zip = "out/ZhangZuiCleaner-Green-$env:APP_VERSION-x64.zip"
+          Compress-Archive -Path "$greenDir/*" -DestinationPath $zip -Force
+          if (-not (Test-Path $zip)) { throw "绿色版 zip 打包失败" }
+
           Get-ChildItem out | ForEach-Object {
             "{0}  ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB)
           }
@@ -134,12 +143,14 @@ jobs:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}-build.{1}', steps.ver.outputs.version, github.run_number) }}
           name: 张开嘴清理 v${{ steps.ver.outputs.version }} (Build ${{ github.run_number }})
           body: |
-            Windows x64 构建产物，直接在本页 Assets 下载即可，无需解压：
+            Windows x64 正式版，两种安装方式按需选一个即可：
 
-            | 文件 | 用途 |
-            | --- | --- |
-            | `ZhangZuiCleaner-Setup-${{ steps.ver.outputs.version }}-x64.exe` | 安装版：装好后桌面和开始菜单出现「张开嘴清理」快捷方式，缺 WebView2 会自动补 |
-            | `ZhangZuiCleaner-Portable-${{ steps.ver.outputs.version }}-x64.exe` | 免安装版：双击直接运行，可放 U 盘带走 |
+            | 文件 | 安装方式 | 适合谁 |
+            | --- | --- | --- |
+            | `ZhangZuiCleaner-Setup-${{ steps.ver.outputs.version }}-x64.exe` | **安装包**：双击安装，自动建桌面/开始菜单快捷方式，缺 WebView2 会自动补 | 想长期固定在这台电脑上用 |
+            | `ZhangZuiCleaner-Green-${{ steps.ver.outputs.version }}-x64.zip` | **绿色版**：解压到文件夹，双击里面的「张开嘴清理.exe」即用；删掉文件夹即卸载 | 想免安装、拷 U 盘、换电脑用 |
+
+            两者功能完全一致，数据各自独立，不用都装。另附单文件 `Portable-*.exe`，双击即用但不含说明文件。
 
             系统要求：Windows 10 1803+ / Windows 11。首次运行若被 SmartScreen 拦截，
             点「更多信息」→「仍要运行」即可（程序未做代码签名）。

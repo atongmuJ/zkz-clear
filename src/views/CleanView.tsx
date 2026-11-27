@@ -1,14 +1,14 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CleanPulse } from "../components/CleanPulse";
 import { Earth } from "../components/Earth";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Icon, type IconName } from "../components/Icon";
 import { RiskConfirmDialog } from "../components/RiskConfirmDialog";
-import { cleanJunk, scanJunk } from "../lib/api";
+import { cleanJunk, getLastCleanup, recordCleanup, scanJunk } from "../lib/api";
 import { errorMessage, formatBytes } from "../lib/format";
 import { useCountUp } from "../lib/useCountUp";
-import type { CleanCategory, DeepWarning, ScanProgress } from "../lib/types";
+import type { CleanCategory, CleanDetail, DeepWarning, LastCleanup, ScanProgress } from "../lib/types";
 
 type Phase = "idle" | "scanning" | "result" | "cleaning" | "done";
 
@@ -28,10 +28,20 @@ export function CleanView() {
   const [categories, setCategories] = useState<CleanCategory[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [freed, setFreed] = useState(0);
+  const [details, setDetails] = useState<CleanDetail[]>([]);
+  const [lastCleanup, setLastCleanup] = useState<LastCleanup | null>(null);
   const [error, setError] = useState("");
   // 深度模式默认关闭：普通清理保持原有安全范围
   const [deepMode, setDeepMode] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getLastCleanup()
+      .then((record) => { if (active) setLastCleanup(record); })
+      .catch(() => { /* 记录读取失败不影响主流程 */ });
+    return () => { active = false; };
+  }, []);
 
   const handleScan = useCallback(async () => {
     setPhase("scanning");
@@ -55,8 +65,11 @@ export function CleanView() {
     setPhase("cleaning");
     setError("");
     try {
-      const bytes = await cleanJunk(Array.from(selected), deepMode);
-      setFreed(bytes);
+      const outcome = await cleanJunk(Array.from(selected), deepMode);
+      setFreed(outcome.freed);
+      setDetails(outcome.details);
+      setLastCleanup({ timestamp: Date.now(), freed: outcome.freed, deep: deepMode });
+      void recordCleanup(outcome.freed, deepMode).catch(() => { /* 记录失败不影响结果展示 */ });
       setPhase("done");
     } catch (err) {
       setError(errorMessage(err, "清理失败，请重试"));
@@ -153,6 +166,17 @@ export function CleanView() {
                     ? "将额外扫描浏览器深度缓存、更新分发缓存与错误报告，清理前需确认风险"
                     : "扫描临时文件、缓存与回收站 · 拖动地球可以旋转"}
                 </p>
+                {lastCleanup && (
+                  <motion.p
+                    className="hero-last-cleanup"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.35, duration: 0.4 }}
+                  >
+                    <Icon name="clock" size={13} />
+                    上次清理：{formatLastCleanup(lastCleanup)}
+                  </motion.p>
+                )}
               </motion.div>
             ) : (
               <motion.div
@@ -282,7 +306,7 @@ export function CleanView() {
         )}
 
         {phase === "done" && (
-          <DoneState key="done" freed={freed} deep={deepMode} onRescan={handleScan} />
+          <DoneState key="done" freed={freed} details={details} deep={deepMode} onRescan={handleScan} />
         )}
       </AnimatePresence>
 
@@ -297,6 +321,26 @@ export function CleanView() {
   );
 }
 
+/** 把上次清理记录转成一句人话：相对时间 + 释放量 */
+function formatLastCleanup(record: LastCleanup): string {
+  // Tauri 侧写的是 Unix 秒，浏览器 localStorage 写的是毫秒，统一成毫秒
+  const ms = record.timestamp < 1e12 ? record.timestamp * 1000 : record.timestamp;
+  const diff = Math.max(0, Date.now() - ms);
+  const minutes = Math.floor(diff / 60000);
+  let when: string;
+  if (minutes < 1) when = "刚刚";
+  else if (minutes < 60) when = `${minutes} 分钟前`;
+  else {
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) when = `${hours} 小时前`;
+    else {
+      const days = Math.floor(hours / 24);
+      when = days < 30 ? `${days} 天前` : `${Math.floor(days / 30)} 个月前`;
+    }
+  }
+  return `${when} · 释放 ${formatBytes(record.freed)}`;
+}
+
 /** 结果头部的总量从 0 滚上来，和下方列表的入场节奏对齐 */
 function TotalBytes({ value }: { value: number }) {
   const shown = useCountUp(value, 700);
@@ -304,12 +348,16 @@ function TotalBytes({ value }: { value: number }) {
 }
 
 /** 完成态：释放体积从 0 滚到实际值，配一次光晕扩散 */
-function DoneState({ freed, deep, onRescan }: { freed: number; deep: boolean; onRescan: () => void }) {
+function DoneState({ freed, details, deep, onRescan }: {
+  freed: number; details: CleanDetail[]; deep: boolean; onRescan: () => void;
+}) {
   const shown = useCountUp(freed);
+  const [showDetail, setShowDetail] = useState(false);
+  const hasDetails = details.length > 0;
 
   return (
     <motion.div
-      className="center-state"
+      className="center-state done-with-detail"
       initial={{ opacity: 0, scale: 0.94 }}
       animate={{ opacity: 1, scale: 1 }}
       // 不留退场动画：紧接着就是首页淡入，先淡出会露出一瞬空白
@@ -344,6 +392,47 @@ function DoneState({ freed, deep, onRescan }: { freed: number; deep: boolean; on
       <p className="done-sub">
         {deep ? "深度清理已完成，缓存会在下次使用时自动重建" : "你的电脑又轻了一点"}
       </p>
+
+      {hasDetails && (
+        <div className="done-details">
+          <button type="button" className="done-details-toggle" onClick={() => setShowDetail((v) => !v)}>
+            <motion.span animate={{ rotate: showDetail ? 90 : 0 }} transition={{ duration: 0.2 }}>
+              <Icon name="arrow" size={13} />
+            </motion.span>
+            {showDetail ? "收起明细" : `查看 ${details.length} 项清理明细`}
+          </button>
+          <AnimatePresence initial={false}>
+            {showDetail && (
+              <motion.div
+                className="done-detail-list"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {details.map((d, i) => (
+                  <motion.div
+                    className="done-detail-row"
+                    key={`${d.name}-${i}`}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.04, duration: 0.24 }}
+                  >
+                    <span className="done-detail-name">
+                      {d.name}
+                      {d.deep && <span className="deep-tag">深度</span>}
+                    </span>
+                    <span className="done-detail-size">
+                      {d.freed > 0 ? formatBytes(d.freed) : "已无可清理项"}
+                    </span>
+                  </motion.div>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
       <button type="button" className="primary-btn" onClick={onRescan}>
         <Icon name="refresh" size={16} />
         再次扫描

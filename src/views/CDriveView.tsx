@@ -17,6 +17,7 @@ export function CDriveView() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [freed, setFreed] = useState(0);
   const [skipped, setSkipped] = useState(0);
+  const [skippedNames, setSkippedNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deepMode, setDeepMode] = useState(false);
@@ -56,6 +57,7 @@ export function CDriveView() {
       const outcome = await cleanCDrive(ids, deepMode);
       setFreed(outcome.freed);
       setSkipped(outcome.skipped.length);
+      setSkippedNames(items.filter((i) => outcome.skipped.includes(i.id)).map((i) => i.name));
       setPhase("done");
       // 真正的清理完成后让仪表盘跟着回落，而不是停在清理前的读数
       if (outcome.freed > 0) {
@@ -212,6 +214,7 @@ export function CDriveView() {
                     <span className="cdrive-name">
                       {item.name}
                       {item.deep && <span className="deep-tag">深度</span>}
+                      {item.needsAdmin && <span className="admin-tag">需管理员</span>}
                     </span>
                     <span className="cdrive-desc">{item.description}</span>
                     <span className={`cdrive-detail ${isRisky ? "risky" : ""}`}>
@@ -237,7 +240,9 @@ export function CDriveView() {
             已为 C 盘释放 <strong>{formatBytes(shownFreed)}</strong> 空间
             {skipped > 0 && (
               <em className="inline-note">
-                另有 {skipped} 项未释放，可能需要以管理员身份运行
+                {skippedNames.length > 0
+                  ? `${skippedNames.join("、")} 未释放，请右键「以管理员身份运行」后重试`
+                  : `另有 ${skipped} 项未释放，可能需要以管理员身份运行`}
               </em>
             )}
           </motion.div>

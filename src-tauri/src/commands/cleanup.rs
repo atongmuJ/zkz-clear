@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use tauri::ipc::Channel;
 
-use crate::models::{CleanCategory, CleanItem, ScanProgress};
+use crate::models::{CleanCategory, CleanDetail, CleanItem, CleanOutcome, ScanProgress};
 use crate::platform::{clean_dir_contents, dir_size, expand_env, remove_path};
 
 /// 清理方式：清空目录内容，或删除指定文件
@@ -506,10 +506,12 @@ pub async fn scan_junk(
 
 /// 清理普通垃圾；`deep=true` 时才允许清理深度分类，防止绕过前端确认直接调用命令。
 #[tauri::command]
-pub async fn clean_junk(category_ids: Vec<String>, deep: bool) -> Result<u64, String> {
+pub async fn clean_junk(category_ids: Vec<String>, deep: bool) -> Result<CleanOutcome, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let specs = build_specs(deep);
         let mut freed = 0u64;
+        let mut details: Vec<CleanDetail> = Vec::new();
+        let mut skipped: Vec<String> = Vec::new();
         for spec in &specs {
             if !category_ids.iter().any(|id| id == spec.id) {
                 continue;
@@ -518,11 +520,21 @@ pub async fn clean_junk(category_ids: Vec<String>, deep: bool) -> Result<u64, St
             if spec.deep && !deep {
                 continue;
             }
+            let mut category_freed = 0u64;
             for target in &spec.targets {
-                freed = freed.saturating_add(target.clear());
+                category_freed = category_freed.saturating_add(target.clear());
             }
+            if category_freed == 0 {
+                skipped.push(spec.id.to_string());
+            }
+            freed = freed.saturating_add(category_freed);
+            details.push(CleanDetail {
+                name: spec.name.to_string(),
+                freed: category_freed,
+                deep: spec.deep,
+            });
         }
-        freed
+        CleanOutcome { freed, skipped, details }
     })
     .await
     .map_err(|e| format!("清理任务异常中断：{}", e))

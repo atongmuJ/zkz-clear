@@ -84,15 +84,28 @@ pub struct CDriveItem {
     pub deep: bool,
     /// 该项删除后可能受影响的数据或配置，用于确认弹窗逐条展示
     pub warning: String,
+    /// 该项是否需要管理员权限才能清理成功（如 powercfg / vssadmin / Windows.old）
+    pub needs_admin: bool,
+}
+
+/// 单个清理分类/项目的实际释放量，用于完成态展示分项明细。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanDetail {
+    pub name: String,
+    pub freed: u64,
+    pub deep: bool,
 }
 
 /// 清理结果。`skipped` 记录未释放任何空间的项目，
 /// 通常是权限不足或文件正被占用，前端据此提示而不是谎报成功。
+/// `details` 逐分类记录实际释放量，让完成反馈可核对。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanOutcome {
     pub freed: u64,
     pub skipped: Vec<String>,
+    pub details: Vec<CleanDetail>,
 }
 
 #[derive(Debug, Clone, Serialize)]

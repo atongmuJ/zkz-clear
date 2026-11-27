@@ -153,21 +153,28 @@ export const MOCK_FOLDERS: FolderUsage[] = [
 // 安全项无风险须知，前端据此判断是否需要弹确认弹窗
 const SAFE_WARNING = "";
 
-export const MOCK_CDRIVE: CDriveItem[] = [
-  { id: "winupdate", name: "Windows 更新缓存", description: "旧版本更新安装文件与下载缓存", size: 8.42 * GB, detail: "可安全清理，不影响系统运行", selected: true, deep: false, warning: SAFE_WARNING },
-  { id: "hiberfil", name: "休眠文件", description: "hiberfil.sys，关闭休眠后可释放", size: 12.8 * GB, detail: "清理后将禁用休眠功能", selected: false, deep: false, warning: "将关闭系统休眠功能并删除 hiberfil.sys。快速启动可能失效；休眠中的会话无法恢复。个人文档不受影响。" },
-  { id: "restore", name: "系统还原点", description: "保留最近一个还原点，清理其余", size: 5.6 * GB, detail: "建议保留至少一个还原点", selected: false, deep: false, warning: "将删除较早的系统还原点。一旦删除，无法再通过这些还原点回退系统设置与部分程序安装。" },
-  { id: "defender", name: "Defender 隔离文件", description: "Windows Defender 隔离区中的文件", size: 1.2 * GB, detail: "清理后无法恢复隔离文件", selected: false, deep: false, warning: "将永久删除被 Defender 隔离的可疑文件，无法从隔离区恢复。若其中有误判文件也会一并丢失。" },
-  { id: "tempwin", name: "C 盘临时文件", description: "系统与应用临时文件", size: 1.84 * GB, detail: "可安全清理", selected: true, deep: false, warning: SAFE_WARNING },
-  { id: "oldwindows", name: "Windows.old", description: "旧系统安装备份", size: 24.6 * GB, detail: "清理后无法回退到旧版本", selected: false, deep: false, warning: "将永久删除旧版本 Windows 的完整备份，包括旧系统中的用户配置文件。删除后无法回退到升级前的系统。" },
-];
+const ADMIN_IDS = new Set([
+  "winupdate", "hiberfil", "restore", "defender", "oldwindows",
+  "deep-delivery", "deep-reports", "deep-logs", "deep-setup",
+]);
+const withAdmin = (items: CDriveItem[]): CDriveItem[] =>
+  items.map((i) => ({ ...i, needsAdmin: ADMIN_IDS.has(i.id) }));
 
-export const MOCK_DEEP_CDRIVE: CDriveItem[] = [
-  { id: "deep-delivery", name: "更新分发缓存", description: "传递优化下载的安装源", size: 3.16 * GB, detail: "删除后更新会重新下载", selected: false, deep: true, warning: "将删除 Windows 更新的 P2P 分发缓存。不会卸载已安装的更新，但在带宽受限时后续更新可能变慢。" },
-  { id: "deep-reports", name: "内核与错误报告", description: "崩溃转储与 WER 报告存档", size: 1.84 * GB, detail: "删除后无法用于故障排查", selected: false, deep: true, warning: "将删除内核崩溃转储与错误报告存档。这不包含个人文件，但一旦删除，过往蓝屏或应用崩溃的诊断记录将无法恢复。" },
-  { id: "deep-logs", name: "安装维护日志", description: "CBS / DISM 组件安装日志", size: 628 * MB, detail: "删除后无法追溯更新失败原因", selected: false, deep: true, warning: "将删除组件安装与维护日志。不影响系统运行，但之后若更新失败，将缺少可用于定位问题的历史记录。" },
-  { id: "deep-setup", name: "系统安装临时文件", description: "Windows 安装过程留下的临时目录", size: 2.08 * GB, detail: "删除后无法回退本次安装过程", selected: false, deep: true, warning: "将删除 C:\\Windows\\Panther 中的安装日志与临时文件。不会影响当前系统，但会丢失本次升级/安装的排查材料。" },
-];
+export const MOCK_CDRIVE: CDriveItem[] = withAdmin([
+  { id: "winupdate", name: "Windows 更新缓存", description: "旧版本更新安装文件与下载缓存", size: 8.42 * GB, detail: "可安全清理，不影响系统运行", selected: true, deep: false, warning: SAFE_WARNING, needsAdmin: false },
+  { id: "hiberfil", name: "休眠文件", description: "hiberfil.sys，关闭休眠后可释放", size: 12.8 * GB, detail: "清理后将禁用休眠功能", selected: false, deep: false, warning: "将关闭系统休眠功能并删除 hiberfil.sys。快速启动可能失效；休眠中的会话无法恢复。个人文档不受影响。", needsAdmin: false },
+  { id: "restore", name: "系统还原点", description: "保留最近一个还原点，清理其余", size: 5.6 * GB, detail: "建议保留至少一个还原点", selected: false, deep: false, warning: "将删除较早的系统还原点。一旦删除，无法再通过这些还原点回退系统设置与部分程序安装。", needsAdmin: false },
+  { id: "defender", name: "Defender 隔离文件", description: "Windows Defender 隔离区中的文件", size: 1.2 * GB, detail: "清理后无法恢复隔离文件", selected: false, deep: false, warning: "将永久删除被 Defender 隔离的可疑文件，无法从隔离区恢复。若其中有误判文件也会一并丢失。", needsAdmin: false },
+  { id: "tempwin", name: "C 盘临时文件", description: "系统与应用临时文件", size: 1.84 * GB, detail: "可安全清理", selected: true, deep: false, warning: SAFE_WARNING, needsAdmin: false },
+  { id: "oldwindows", name: "Windows.old", description: "旧系统安装备份", size: 24.6 * GB, detail: "清理后无法回退到旧版本", selected: false, deep: false, warning: "将永久删除旧版本 Windows 的完整备份，包括旧系统中的用户配置文件。删除后无法回退到升级前的系统。", needsAdmin: false },
+]);
+
+export const MOCK_DEEP_CDRIVE: CDriveItem[] = withAdmin([
+  { id: "deep-delivery", name: "更新分发缓存", description: "传递优化下载的安装源", size: 3.16 * GB, detail: "删除后更新会重新下载", selected: false, deep: true, warning: "将删除 Windows 更新的 P2P 分发缓存。不会卸载已安装的更新，但在带宽受限时后续更新可能变慢。", needsAdmin: false },
+  { id: "deep-reports", name: "内核与错误报告", description: "崩溃转储与 WER 报告存档", size: 1.84 * GB, detail: "删除后无法用于故障排查", selected: false, deep: true, warning: "将删除内核崩溃转储与错误报告存档。这不包含个人文件，但一旦删除，过往蓝屏或应用崩溃的诊断记录将无法恢复。", needsAdmin: false },
+  { id: "deep-logs", name: "安装维护日志", description: "CBS / DISM 组件安装日志", size: 628 * MB, detail: "删除后无法追溯更新失败原因", selected: false, deep: true, warning: "将删除组件安装与维护日志。不影响系统运行，但之后若更新失败，将缺少可用于定位问题的历史记录。", needsAdmin: false },
+  { id: "deep-setup", name: "系统安装临时文件", description: "Windows 安装过程留下的临时目录", size: 2.08 * GB, detail: "删除后无法回退本次安装过程", selected: false, deep: true, warning: "将删除 C:\\Windows\\Panther 中的安装日志与临时文件。不会影响当前系统，但会丢失本次升级/安装的排查材料。", needsAdmin: false },
+]);
 
 export const MOCK_STATUS: SystemStatus = {
   cpuUsage: 18,

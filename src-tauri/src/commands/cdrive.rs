@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::models::{CDriveItem, CleanOutcome};
+use crate::models::{CDriveItem, CleanDetail, CleanOutcome};
 use crate::platform::{
     clean_dir_contents, dir_size, expand_env, powershell, remove_path, run_program,
 };
@@ -52,6 +52,15 @@ fn shadow_storage_size() -> u64 {
 /// 安全项无需风险确认，warning 留空；前端据此判断是否需要弹确认弹窗。
 const SAFE_WARNING: &str = "";
 
+/// 这些项目在普通权限下几乎必然失败（特权命令或系统目录），提前告知用户
+fn needs_admin(id: &str) -> bool {
+    matches!(
+        id,
+        "hiberfil" | "restore" | "oldwindows" | "winupdate" | "defender"
+            | "deep-delivery" | "deep-reports" | "deep-logs" | "deep-setup"
+    )
+}
+
 fn item(
     id: &str,
     name: &str,
@@ -71,6 +80,7 @@ fn item(
         selected,
         deep,
         warning: warning.to_string(),
+        needs_admin: needs_admin(id),
     }
 }
 
@@ -173,6 +183,7 @@ fn get_cdrive_items_blocking(deep: bool) -> Vec<CDriveItem> {
 fn clean_cdrive_blocking(item_ids: Vec<String>, deep: bool) -> CleanOutcome {
     let mut freed = 0u64;
     let mut skipped: Vec<String> = Vec::new();
+    let mut details: Vec<CleanDetail> = Vec::new();
 
     // 安全护栏：深度项只在 deep=true 时执行，避免绕过确认弹窗直接调用命令
     let allowed: Vec<CDriveItem> = get_cdrive_items_blocking(deep)
@@ -181,10 +192,12 @@ fn clean_cdrive_blocking(item_ids: Vec<String>, deep: bool) -> CleanOutcome {
         .collect();
 
     for id in item_ids.iter() {
-        if !allowed.iter().any(|i| &i.id == id) {
+        let item = allowed.iter().find(|i| &i.id == id);
+        if item.is_none() {
             skipped.push(id.clone());
             continue;
         }
+        let item = item.unwrap();
         let before = freed;
         match id.as_str() {
             "winupdate" => {
@@ -252,12 +265,18 @@ fn clean_cdrive_blocking(item_ids: Vec<String>, deep: bool) -> CleanOutcome {
             }
             _ => {}
         }
-        if freed == before {
+        let item_freed = freed.saturating_sub(before);
+        if item_freed == 0 {
             skipped.push(id.clone());
         }
+        details.push(CleanDetail {
+            name: item.name.clone(),
+            freed: item_freed,
+            deep: item.deep,
+        });
     }
 
-    CleanOutcome { freed, skipped }
+    CleanOutcome { freed, skipped, details }
 }
 
 #[tauri::command]
