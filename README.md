@@ -6,14 +6,14 @@
 
 ## 直接下载
 
-到 [Releases](../../releases) 页面下载 exe，**不用解压、不用装环境**：
+到 [Releases](../../releases) 页面下载，**不用装 Node/Rust/VS，下载就能用**。每版只提供两个文件，按下表选一个即可：
 
 | 文件 | 安装方式 | 适合谁 |
 | --- | --- | --- |
-| `ZhangZuiCleaner-Setup-*-x64.exe` | 安装包：双击安装，自动创建桌面与开始菜单快捷方式 | 想长期固定在这台电脑上用 |
-| `ZhangZuiCleaner-Green-*-x64.zip` | 绿色版：解压后双击文件夹里的「张开嘴清理.exe」；删除文件夹即卸载 | 想免安装、拷 U 盘、换电脑用 |
+| `ZhangZuiCleaner-Setup-*-x64.exe` | **安装版**：双击安装，自动创建桌面与开始菜单快捷方式 | 想长期固定在这台电脑上用 |
+| `ZhangZuiCleaner-Green-*-x64.zip` | **免安装版**：右键解压到文件夹，双击里面的「张开嘴清理.exe」；删掉文件夹即卸载 | 想免安装、拷 U 盘、换电脑用 |
 
-两种方式功能完全一致、数据各自独立，按需选一个即可。绿色包内附「使用说明.txt」。
+两者功能完全一致、数据各自独立，不用都装。免安装包内附「使用说明.txt」。
 
 系统要求：Windows 10 1803+ / Windows 11。首次运行若被 SmartScreen 拦截，点「更多信息」→「仍要运行」（程序未做代码签名）。
 
@@ -53,7 +53,7 @@ npm run tauri dev    # 桌面端调试
 
 三种方式，任选：
 
-1. **GitHub Actions（推荐）** — 推 `v*` 标签只构建并保存 Actions artifact；手动触发 `build-windows` 且显式勾选 `publish` 才会创建 Release
+1. **GitHub Actions（推荐）** — 推 `v*` 标签即构建并发布 Release（仅含安装包 + 免安装 zip 两个文件）；手动触发 `build-windows` 默认只构建、不发布，需勾选 `publish` 才发
 2. **本地一键脚本** — Windows 上双击 `build-windows.bat`，自动装依赖并出包
 3. **手动** — `npm install && npm run tauri build`，产物在 `src-tauri/target/release/bundle/nsis`
 

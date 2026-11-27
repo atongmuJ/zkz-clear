@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "构建完成后创建 Release（默认只构建，不发布）"
+        description: "构建完成后创建 Release（推 tag 触发时无需勾选，会自动发布）"
         type: boolean
         default: false
       release_tag:
@@ -120,19 +120,21 @@ jobs:
           }
 
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          Copy-Item $exe "out/ZhangZuiCleaner-Portable-$env:APP_VERSION-x64.exe"
           Copy-Item $setup.FullName "out/ZhangZuiCleaner-Setup-$env:APP_VERSION-x64.exe"
 
-          # 绿色版 zip：解压即用，内含重命名后的 exe 与专用说明
+          # 免安装版 zip：解压即用，内含重命名后的 exe 与专用说明。
+          # 只发布「安装包 + 免安装 zip」两个文件，不再附单文件 exe，避免用户选错。
           $greenDir = Join-Path $env:RUNNER_TEMP "green"
           New-Item -ItemType Directory -Force -Path $greenDir | Out-Null
           Copy-Item $exe (Join-Path $greenDir "张开嘴清理.exe")
           Copy-Item "portable/GREEN-README.txt" (Join-Path $greenDir "使用说明.txt")
           $zip = "out/ZhangZuiCleaner-Green-$env:APP_VERSION-x64.zip"
           Compress-Archive -Path "$greenDir/*" -DestinationPath $zip -Force
-          if (-not (Test-Path $zip)) { throw "绿色版 zip 打包失败" }
+          if (-not (Test-Path $zip)) { throw "免安装版 zip 打包失败" }
 
-          Get-ChildItem out | ForEach-Object {
+          $files = Get-ChildItem out -File
+          if ($files.Count -ne 2) { throw "产物数量应为 2（安装包 + 免安装 zip），实际 $($files.Count)" }
+          $files | ForEach-Object {
             "{0}  ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB)
           }
 
@@ -145,24 +147,30 @@ jobs:
           retention-days: 30
 
       - name: Publish release
-        # 只有手动运行工作流并显式勾选 publish 才发布；push tag 仅构建并上传 Actions artifact。
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+        # 推 v* tag 时自动发布；手动运行工作流则需显式勾选 publish。
+        if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ format('v{0}', steps.ver.outputs.version) }}
-          name: 张开嘴清理 v${{ steps.ver.outputs.version }} (Build ${{ github.run_number }})
+          name: 张开嘴清理 v${{ steps.ver.outputs.version }}
           body: |
-            Windows x64 正式版，两种安装方式按需选一个即可：
+            Windows x64 正式版。下面**两个文件选一个下载即可**，功能完全一致，只是安装方式不同：
 
             | 文件 | 安装方式 | 适合谁 |
             | --- | --- | --- |
-            | `ZhangZuiCleaner-Setup-${{ steps.ver.outputs.version }}-x64.exe` | **安装包**：双击安装，自动建桌面/开始菜单快捷方式，缺 WebView2 会自动补 | 想长期固定在这台电脑上用 |
-            | `ZhangZuiCleaner-Green-${{ steps.ver.outputs.version }}-x64.zip` | **绿色版**：解压到文件夹，双击里面的「张开嘴清理.exe」即用；删掉文件夹即卸载 | 想免安装、拷 U 盘、换电脑用 |
+            | `ZhangZuiCleaner-Setup-${{ steps.ver.outputs.version }}-x64.exe` | **安装版**：双击安装，自动建桌面/开始菜单快捷方式，缺 WebView2 会自动补 | 想长期固定在这台电脑上用 |
+            | `ZhangZuiCleaner-Green-${{ steps.ver.outputs.version }}-x64.zip` | **免安装版**：解压到文件夹，双击里面的「张开嘴清理.exe」即用；删掉文件夹即卸载 | 想免安装、拷 U 盘、换电脑用 |
 
-            两者功能完全一致，数据各自独立，不用都装。另附单文件 `Portable-*.exe`，双击即用但不含说明文件。
+            两者数据各自独立，不用都装。
 
-            系统要求：Windows 10 1803+ / Windows 11。首次运行若被 SmartScreen 拦截，
-            点「更多信息」→「仍要运行」即可（程序未做代码签名）。
+            **使用步骤**
+
+            1. 安装版：双击 `Setup-...exe` → 一路下一步 → 桌面出现「张开嘴清理」图标，双击打开。
+            2. 免安装版：右键 zip →「全部解压缩」→ 进入解压出的文件夹 → 双击「张开嘴清理.exe」。
+            3. 首次打开若出现蓝色「Windows 已保护你的电脑」：点「更多信息」→「仍要运行」（程序未做代码签名，属正常提示）。
+            4. 点白色大按钮「扫描电脑」→ 看列表 → 点「清理选中项」。
+
+            系统要求：Windows 10 1803+ / Windows 11（64 位）。
 
             「C 盘清理」中的休眠文件、系统还原点、Windows.old 等项目需要右键「以管理员身份运行」。
 
